@@ -487,29 +487,33 @@ set +a
 
 # Generiraj privzeti settings.json, da API smoke test lahko ustvari conversation brez ročnega klikanja v UI
 SETTINGS_FILE="${OPENHANDS_STATE_DIR}/settings.json"
-if [[ ! -f "${SETTINGS_FILE}" ]]; then
-    log_info "Generiram privzeti settings.json (LLM + confirmation_mode=false)"
+# Vedno generiraj/posodobi settings.json z aktualnimi nastavitvami
+# To zagotavlja da UI vedno deluje brez rocnega klikanja v nastavitvah
+log_info "Generiram/posodabljam settings.json (LLM + confirmation_mode=false)"
 
-    SETTINGS_LLMMODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
-    SETTINGS_LLMBASE="${LLM_BASE_URL:-http://host.docker.internal:11434}"
-    SETTINGS_LLMKEY="${LLM_API_KEY:-local-key}"
+SETTINGS_LLMMODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
+SETTINGS_LLMBASE="${LLM_BASE_URL:-http://host.docker.internal:11434}"
+SETTINGS_LLMKEY="${LLM_API_KEY:-local-key}"
+SETTINGS_AGENT="${AGENT_TYPE:-CodeActAgent}"
 
-    cat > "${SETTINGS_FILE}" <<EOF
+cat > "${SETTINGS_FILE}" <<EOF
 {
   "language": "sl",
+  "agent": "${SETTINGS_AGENT}",
   "confirmation_mode": false,
   "llm_model": "${SETTINGS_LLMMODEL}",
   "llm_base_url": "${SETTINGS_LLMBASE}",
   "llm_api_key": "${SETTINGS_LLMKEY}",
-  "sandbox_runtime_container_image": "${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
+  "sandbox_runtime_container_image": "${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}",
+  "security_analyzer": ""
 }
 EOF
-fi
+log_ok "settings.json posodobljen: model=${SETTINGS_LLMMODEL}, base_url=${SETTINGS_LLMBASE}"
 
 log_ok "Direktoriji pripravljeni:"
 log_info "  Workspace: ${WORKSPACE_DIR} (lastnik: ${HOST_UID}:${HOST_GID})"
 log_info "  Data:      ${SCRIPT_DIR}/data"
-log_info "  State:     ${HOME}/.openhands"
+log_info "  State:     ${OPENHANDS_STATE_DIR}"
 
 # ============================================
 # 5b. PREVERJANJE CONFIG.TOML (Runtime, Orodja, Pravice)
@@ -587,73 +591,189 @@ fi
 log_ok "Preverjanje config.toml zakljuceno"
 
 # ============================================
-# 6. DOCKER IMAGE-JI
+# 6. OLLAMA — NAMESTITEV, KONFIGURACIJA, ZAGON, MODEL
 # ============================================
-# ============================================
-# 6. PREVERJANJE OLLAMA POVEZLJIVOSTI
-# ============================================
-log_step "6/10 — Preverjanje Ollama povezljivosti"
+log_step "6/10 — Ollama (namestitev, konfiguracija, zagon, model)"
 
-# Ollama URL (iz .env ali privzeto)
-OLLAMA_HOST="${LLM_BASE_URL:-http://localhost:11434}"
-# Pretvori host.docker.internal v localhost za host-side preverjanje
-OLLAMA_CHECK_URL="$(echo "${OLLAMA_HOST}" | sed 's|host\.docker\.internal|localhost|g')"
+# --- 6a. Namestitev Ollama ce ni prisotna ---
+if ! command -v ollama &>/dev/null; then
+    log_warn "Ollama ni namescena. Namescanje ..."
+    if curl -fsSL https://ollama.com/install.sh | sh 2>&1 | tee -a "${LOG_FILE}"; then
+        log_ok "Ollama namescena: $(ollama --version 2>/dev/null || echo 'ok')"
+    else
+        fail "Namestitev Ollama ni uspela. Namesti rocno: https://ollama.com/download"
+    fi
+else
+    log_ok "Ollama ze namescena: $(ollama --version 2>/dev/null || echo 'ok')"
+fi
 
-log_info "Preverjam Ollama na: ${OLLAMA_CHECK_URL}"
+# --- 6b. Multi-GPU + tensor parallel konfiguracija ---
+OLLAMA_PORT="11434"
+OLLAMA_BIND="0.0.0.0:${OLLAMA_PORT}"
+OLLAMA_CHECK_URL="http://localhost:${OLLAMA_PORT}"
 
-# Opomba: ce uporabljas host.docker.internal (privzeto), mora Ollama na hostu poslusal na 0.0.0.0,
-# sicer ga kontejnerji ne morejo doseci (ce poslusa samo na 127.0.0.1).
-if echo "${OLLAMA_HOST}" | grep -q 'host\.docker\.internal'; then
-    OLLAMA_PORT="$(echo "${OLLAMA_CHECK_URL}" | sed -n 's|.*:\([0-9]\+\).*|\1|p')"
-    OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+# Zaznaj stevilo NVIDIA GPU-jev za multi-GPU/tensor parallel
+OLLAMA_GPU_COUNT=0
+if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+    OLLAMA_GPU_COUNT="$(nvidia-smi -L 2>/dev/null | wc -l)"
+fi
 
-    if command -v ss &>/dev/null; then
-            if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
-                log_error "========================================================"
-                log_error "KRITICNO: Ollama poslusa SAMO na 127.0.0.1:${OLLAMA_PORT}"
-                log_error "Docker kontejnerji ga NE MOREJO doseci prek host.docker.internal!"
-                log_error ""
-                log_error "RESITEV: Ustavi Ollamo in jo zazeni takole:"
-                log_error "  OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
-                log_error ""
-                log_error "Brez tega bo UI javil 'Something went wrong storing settings'"
-                log_error "in agent ne bo mogel generirati odgovorov."
-                log_error "========================================================"
-            fi
+OLLAMA_ENV_VARS="OLLAMA_HOST=${OLLAMA_BIND}"
+
+if (( OLLAMA_GPU_COUNT > 1 )); then
+    log_info "Multi-GPU zaznano: ${OLLAMA_GPU_COUNT} GPU-jev — aktiviram tensor parallel"
+    # OLLAMA_SCHED_SPREAD=1: razporedi model cez vse GPU-je (tensor parallel)
+    # OLLAMA_FLASH_ATTENTION=1: hitrejse attention racunanje
+    # OLLAMA_NUM_PARALLEL: dovoli vec hkratnih zahtev
+    OLLAMA_ENV_VARS="${OLLAMA_ENV_VARS} OLLAMA_SCHED_SPREAD=true OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_PARALLEL=4"
+    log_ok "Ollama GPU nastavitve: SCHED_SPREAD=true, FLASH_ATTENTION=1, NUM_PARALLEL=4"
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+    log_info "En GPU zaznan — Ollama bo uporabila en GPU"
+    OLLAMA_ENV_VARS="${OLLAMA_ENV_VARS} OLLAMA_FLASH_ATTENTION=1"
+else
+    log_info "Ni GPU-jev — Ollama bo delovala v CPU nacinu"
+fi
+
+# --- 6c. Nastavi systemd override ce Ollama tece kot servis ---
+OLLAMA_SYSTEMD_OVERRIDE="/etc/systemd/system/ollama.service.d/override.conf"
+OLLAMA_NEEDS_RESTART=false
+
+# Pripravi vsebino systemd override
+OLLAMA_SYSTEMD_CONTENT="[Service]"
+OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_HOST=${OLLAMA_BIND}\""
+if (( OLLAMA_GPU_COUNT > 1 )); then
+    OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_SCHED_SPREAD=true\"
+Environment=\"OLLAMA_FLASH_ATTENTION=1\"
+Environment=\"OLLAMA_NUM_PARALLEL=4\""
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+    OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_FLASH_ATTENTION=1\""
+fi
+
+if systemctl list-unit-files ollama.service &>/dev/null 2>&1; then
+    log_info "Ollama systemd servis zaznan"
+
+    # Preveri ali je override ze pravilen
+    CURRENT_OVERRIDE=""
+    if [[ -f "${OLLAMA_SYSTEMD_OVERRIDE}" ]]; then
+        CURRENT_OVERRIDE="$(cat "${OLLAMA_SYSTEMD_OVERRIDE}" 2>/dev/null || true)"
+    fi
+
+    if [[ "${CURRENT_OVERRIDE}" != "${OLLAMA_SYSTEMD_CONTENT}" ]]; then
+        log_info "Posodabljam systemd override (OLLAMA_HOST + GPU nastavitve) ..."
+        sudo mkdir -p "$(dirname "${OLLAMA_SYSTEMD_OVERRIDE}")"
+        echo "${OLLAMA_SYSTEMD_CONTENT}" | sudo tee "${OLLAMA_SYSTEMD_OVERRIDE}" > /dev/null
+        sudo systemctl daemon-reload
+        OLLAMA_NEEDS_RESTART=true
+        log_ok "Systemd override posodobljen"
+    else
+        log_ok "Systemd override ze pravilen"
+    fi
+
+    # Zazeni/restartaj Ollama servis
+    if [[ "${OLLAMA_NEEDS_RESTART}" == "true" ]] || ! systemctl is-active --quiet ollama 2>/dev/null; then
+        log_info "Zaganjam/restartiram Ollama servis ..."
+        sudo systemctl restart ollama
+        sleep 3
+    fi
+
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+        log_ok "Ollama servis tece"
+    else
+        log_warn "Ollama servis ni aktiven po restartu — poskusam rocni zagon"
     fi
 fi
 
+# --- 6d. Ce Ollama ne tece (ni systemd ali servis ni uspel), zazeni rocno ---
+OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
+
+if [[ "${OLLAMA_HTTP_CODE}" != "200" ]]; then
+    log_info "Ollama ni dosegljiva na ${OLLAMA_CHECK_URL} — zaganjam v ozadju ..."
+
+    # Ustavi morebitni obstojechi Ollama proces ki poslusa na napacnem naslovu
+    if pgrep -x ollama &>/dev/null; then
+        log_info "Ustavljam obstojechi Ollama proces ..."
+        pkill -x ollama 2>/dev/null || sudo pkill -x ollama 2>/dev/null || true
+        sleep 2
+    fi
+
+    # Zazeni Ollama z vsemi env vars (host + GPU)
+    # shellcheck disable=SC2086
+    env ${OLLAMA_ENV_VARS} nohup ollama serve >> "${SCRIPT_DIR}/ollama.log" 2>&1 &
+    OLLAMA_PID=$!
+    log_info "Ollama zagnana v ozadju (PID: ${OLLAMA_PID}, log: ${SCRIPT_DIR}/ollama.log)"
+
+    # Pocakaj da se Ollama zazene (do 30s)
+    OLLAMA_WAIT=0
+    OLLAMA_WAIT_MAX=30
+    while (( OLLAMA_WAIT < OLLAMA_WAIT_MAX )); do
+        OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
+        if [[ "${OLLAMA_HTTP_CODE}" == "200" ]]; then
+            break
+        fi
+        sleep 2
+        OLLAMA_WAIT=$(( OLLAMA_WAIT + 2 ))
+    done
+fi
+
+# --- 6d. Preveri Ollama dosegljivost ---
 OLLAMA_REACHABLE=false
 OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
 
 if [[ "${OLLAMA_HTTP_CODE}" == "200" ]]; then
-    # Ollama vraca 200 na root — preverimo se /api/tags
     OLLAMA_TAGS_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null || echo '000')"
     if [[ "${OLLAMA_TAGS_CODE}" == "200" ]]; then
         OLLAMA_REACHABLE=true
-        log_ok "Ollama dosegljiv na ${OLLAMA_CHECK_URL}"
-
-        # Preveri ali je qwen3-coder:30b model prisoten
-        MODEL_NAME="${LLM_MODEL:-ollama/qwen3-coder:30b}"
-        # Odstrani "ollama/" prefix za iskanje
-        MODEL_SHORT="$(echo "${MODEL_NAME}" | sed 's|^ollama/||')"
-        if curl -sf "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null | grep -qi "${MODEL_SHORT}"; then
-            log_ok "Model '${MODEL_SHORT}' je prisoten v Ollama"
-        else
-            log_warn "Model '${MODEL_SHORT}' NI najden v Ollama. Prenesi ga z: ollama pull ${MODEL_SHORT}"
-            log_warn "Agent ne bo deloval dokler model ni prisoten!"
-        fi
+        log_ok "Ollama dosegljiva na ${OLLAMA_CHECK_URL}"
     fi
 fi
 
 if [[ "${OLLAMA_REACHABLE}" == "false" ]]; then
-    if [[ "${OLLAMA_HTTP_CODE}" == "000" ]]; then
-        log_warn "Ollama NI dosegljiv (connection refused / DNS fail / timeout) na ${OLLAMA_CHECK_URL}"
+    log_error "Ollama NI dosegljiva na ${OLLAMA_CHECK_URL} po vseh poskusih zagona."
+    log_error "Preveri: journalctl -u ollama --no-pager -n 30  ali  cat ${SCRIPT_DIR}/ollama.log"
+    fail "Ollama je potrebna za delovanje OpenHands. Brez nje agent ne more generirati odgovorov."
+fi
+
+# --- 6e. Preveri ali Ollama poslusa na 0.0.0.0 (da jo Docker kontejnerji dosezejo) ---
+if command -v ss &>/dev/null; then
+    if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+        log_warn "Ollama poslusa samo na 127.0.0.1 — Docker kontejnerji je ne bodo dosegli."
+        log_info "Poskusam restartirati Ollamo na 0.0.0.0 ..."
+
+        pkill -x ollama 2>/dev/null || sudo pkill -x ollama 2>/dev/null || true
+        sleep 2
+        # shellcheck disable=SC2086
+        env ${OLLAMA_ENV_VARS} nohup ollama serve >> "${SCRIPT_DIR}/ollama.log" 2>&1 &
+        sleep 3
+
+        if ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+            log_ok "Ollama zdaj poslusa na 0.0.0.0:${OLLAMA_PORT}"
+        else
+            log_error "Ollama se vedno ne poslusa na 0.0.0.0:${OLLAMA_PORT}."
+            log_error "Rocno zazeni: OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
+            fail "Docker kontejnerji ne morejo doseci Ollame. UI bo javil napako."
+        fi
     else
-        log_warn "Ollama vrnil nepricakovan HTTP ${OLLAMA_HTTP_CODE} na ${OLLAMA_CHECK_URL}"
+        log_ok "Ollama poslusa na 0.0.0.0:${OLLAMA_PORT} (Docker kontejnerji jo dosezejo)"
     fi
-    log_warn "Zazeni Ollama z: ollama serve"
-    log_warn "OpenHands bo zagnan, a agent ne bo mogel generirati odgovorov brez LLM!"
+fi
+
+# --- 6f. Avtomatski prenos modela ce manjka ---
+MODEL_NAME="${LLM_MODEL:-ollama/qwen3-coder:30b}"
+MODEL_SHORT="$(echo "${MODEL_NAME}" | sed 's|^ollama/||')"
+
+if curl -sf "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null | grep -qi "${MODEL_SHORT}"; then
+    log_ok "Model '${MODEL_SHORT}' je ze prisoten v Ollama"
+else
+    log_info "Model '${MODEL_SHORT}' ni prisoten — prenasam (to lahko traja nekaj minut) ..."
+    if ollama pull "${MODEL_SHORT}" 2>&1 | tee -a "${LOG_FILE}"; then
+        log_ok "Model '${MODEL_SHORT}' uspesno prenesen"
+    else
+        log_error "Prenos modela '${MODEL_SHORT}' ni uspel."
+        fail "Model je potreben za delovanje agenta. Preveri internetno povezavo in poskusi znova."
+    fi
 fi
 
 # ============================================
@@ -982,17 +1102,24 @@ echo -e "${GREEN}  SISTEM JE PRIPRAVLJEN${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "  ${CYAN}UI:${NC}          http://localhost:${OPENHANDS_PORT:-3000}"
-echo -e "  ${CYAN}LLM:${NC}         Qwen3-Coder:30B (Ollama)"
-echo -e "  ${CYAN}Ollama:${NC}      ${OLLAMA_CHECK_URL}"
-echo -e "  ${CYAN}GPU:${NC}         ${GPU_AVAILABLE} (${GPU_TYPE})"
+echo -e "  ${CYAN}LLM:${NC}         ${MODEL_NAME} (Ollama)"
+echo -e "  ${CYAN}Ollama:${NC}      ${OLLAMA_CHECK_URL} (bind: ${OLLAMA_BIND})"
+echo -e "  ${CYAN}GPU (Docker):${NC} ${GPU_AVAILABLE} (${GPU_TYPE})"
+if (( OLLAMA_GPU_COUNT > 1 )); then
+echo -e "  ${CYAN}GPU (Ollama):${NC} ${OLLAMA_GPU_COUNT} GPU-jev — tensor parallel (SCHED_SPREAD=true)"
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+echo -e "  ${CYAN}GPU (Ollama):${NC} 1 GPU (FLASH_ATTENTION=1)"
+else
+echo -e "  ${CYAN}GPU (Ollama):${NC} CPU nacin"
+fi
 echo -e "  ${CYAN}Workspace:${NC}   ${WORKSPACE_DIR}"
+echo -e "  ${CYAN}State:${NC}       ${OPENHANDS_STATE_DIR}"
 echo -e "  ${CYAN}Config:${NC}      ${CONFIG_FILE}"
+echo -e "  ${CYAN}Settings:${NC}    ${SETTINGS_FILE}"
 echo ""
-echo -e "  ${YELLOW}Naslednji koraki:${NC}"
-echo -e "    1. Preveri da Ollama tece: ollama serve"
-echo -e "    2. Preveri da model obstaja: ollama pull qwen3-coder:30b"
-echo -e "    3. Odpri http://localhost:${OPENHANDS_PORT:-3000} v brskalniku"
-echo -e "    4. Zacni nov pogovor z agentom"
+echo -e "  ${YELLOW}Naslednji korak:${NC}"
+echo -e "    Odpri http://localhost:${OPENHANDS_PORT:-3000} v brskalniku in zacni pogovor."
+echo -e "    Vse ostalo je ze nastavljeno avtomatsko."
 echo ""
 echo -e "  ${YELLOW}Zmoznosti agenta (vse konfigurirane):${NC}"
 echo -e "    - Shell/Bash izvrsevanje ukazov (enable_cmd=true)"
