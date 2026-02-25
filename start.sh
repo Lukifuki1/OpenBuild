@@ -448,9 +448,12 @@ chown -R "${HOST_UID}:${HOST_GID}" "${WORKSPACE_DIR}" 2>/dev/null || true
 chmod 755 "${WORKSPACE_DIR}"
 chmod 755 "${SCRIPT_DIR}/data"
 
-# Ustvari ~/.openhands ce ne obstaja (za lokalno stanje)
-OPENHANDS_STATE_DIR="${HOME}/.openhands"
+# Ustvari OPENHANDS_STATE_DIR (za lokalno stanje — bind mount v kontejner)
+# POMEMBNO: Docker compose montira to pot v /.openhands v kontejnerju.
+# Ce uporabis named volume namesto bind mount, kontejner NE more pisati settings.json!
+OPENHANDS_STATE_DIR="${OPENHANDS_STATE_DIR:-${HOME}/.openhands}"
 mkdir -p "${OPENHANDS_STATE_DIR}"
+log_info "OPENHANDS_STATE_DIR: ${OPENHANDS_STATE_DIR}"
 
 # Ce je ~/.openhands ustvaril root (ali drug user), popravi owner/pravice brez hard fail-a
 if [[ -d "${OPENHANDS_STATE_DIR}" ]]; then
@@ -467,8 +470,23 @@ if [[ -d "${OPENHANDS_STATE_DIR}" ]]; then
     }
 fi
 
+# Nastavi OPENHANDS_STATE_DIR v .env ce ni ze nastavljen
+if ! grep -q "^OPENHANDS_STATE_DIR=" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    echo "OPENHANDS_STATE_DIR=${OPENHANDS_STATE_DIR}" >> "${SCRIPT_DIR}/.env"
+    log_info "OPENHANDS_STATE_DIR dodan v .env: ${OPENHANDS_STATE_DIR}"
+elif grep -q "^OPENHANDS_STATE_DIR=$" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    sed -i "s|^OPENHANDS_STATE_DIR=.*|OPENHANDS_STATE_DIR=${OPENHANDS_STATE_DIR}|" "${SCRIPT_DIR}/.env"
+    log_info "OPENHANDS_STATE_DIR posodobljen v .env: ${OPENHANDS_STATE_DIR}"
+fi
+
+# Ponovno nalozi .env z OPENHANDS_STATE_DIR
+set -a
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/.env"
+set +a
+
 # Generiraj privzeti settings.json, da API smoke test lahko ustvari conversation brez ročnega klikanja v UI
-SETTINGS_FILE="${HOME}/.openhands/settings.json"
+SETTINGS_FILE="${OPENHANDS_STATE_DIR}/settings.json"
 if [[ ! -f "${SETTINGS_FILE}" ]]; then
     log_info "Generiram privzeti settings.json (LLM + confirmation_mode=false)"
 
@@ -590,10 +608,18 @@ if echo "${OLLAMA_HOST}" | grep -q 'host\.docker\.internal'; then
     OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 
     if command -v ss &>/dev/null; then
-        if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
-            log_warn "Ollama izgleda poslusa samo na 127.0.0.1:${OLLAMA_PORT}. Docker kontejnerji ga morda NE bodo dosegli."
-            log_warn "Zazeni ga takole: OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
-        fi
+            if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+                log_error "========================================================"
+                log_error "KRITICNO: Ollama poslusa SAMO na 127.0.0.1:${OLLAMA_PORT}"
+                log_error "Docker kontejnerji ga NE MOREJO doseci prek host.docker.internal!"
+                log_error ""
+                log_error "RESITEV: Ustavi Ollamo in jo zazeni takole:"
+                log_error "  OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
+                log_error ""
+                log_error "Brez tega bo UI javil 'Something went wrong storing settings'"
+                log_error "in agent ne bo mogel generirati odgovorov."
+                log_error "========================================================"
+            fi
     fi
 fi
 
@@ -721,6 +747,13 @@ log_info "  Runtime: ${RUNTIME_DIGEST}"
 log_step "8/10 — Zagon Docker Compose stack-a"
 
 cd "${SCRIPT_DIR}"
+
+# Preveri ali obstaja star named volume (openbuild-openhands-state) in opozori uporabnika
+if docker volume inspect openbuild-openhands-state &>/dev/null 2>&1; then
+    log_warn "Zaznan star named volume 'openbuild-openhands-state' iz prejsnje verzije."
+    log_warn "Nova verzija uporablja host bind mount (${OPENHANDS_STATE_DIR}) namesto named volume."
+    log_warn "Stari volume lahko odstranis z: docker volume rm openbuild-openhands-state"
+fi
 
 # Sestavi compose ukaz
 COMPOSE_FILES="-f docker-compose.yml"

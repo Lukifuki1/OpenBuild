@@ -41,8 +41,10 @@ services:
       # Docker socket — omogoca OpenHands ustvarjanje in upravljanje sandbox kontejnerjev
       # Brez tega agent NE MORE izvrsevati ukazov ali zaganjati projektov
       - /var/run/docker.sock:/var/run/docker.sock
-      # Stanje OpenHands (pogovori, nastavitve, config.toml)
-      - openhands-state:/.openhands
+      # Stanje OpenHands (pogovori, nastavitve, settings.json)
+      # POMEMBNO: host bind mount (ne named volume!) — sicer kontejner ne more pisati settings.json
+      # Uradni OpenHands pristop: docker run -v ~/.openhands:/.openhands
+      - ${OPENHANDS_STATE_DIR:-./.openhands-state}:/.openhands
       # Workspace za agenta (zapisljiv, deljeno z gostiteljem)
       - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
       # Konfiguracija — config.toml z eksplicitnimi nastavitvami orodij in pravic
@@ -72,6 +74,5 @@ networks:
     name: openbuild-net
     driver: bridge
 
-volumes:
-  openhands-state:
-    name: openbuild-openhands-state
+# Brez named volumes — /.openhands je host bind mount (OPENHANDS_STATE_DIR)
+# volumes:

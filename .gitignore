@@ -13,6 +13,7 @@
 data/
 data/**
 .openhands/
+.openhands-state/
 workspace/
 
 # ----- Docker volumes & artifacts -----

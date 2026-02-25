@@ -54,6 +54,9 @@ set_if_empty "WORKSPACE_BASE" "${PROJECT_ROOT}/workspace"
 # Nastavi SANDBOX_RUNTIME_CONTAINER_IMAGE ce ni nastavljen
 set_if_empty "SANDBOX_RUNTIME_CONTAINER_IMAGE" "docker.openhands.dev/openhands/runtime:0.62-nikolaik"
 
+# Nastavi OPENHANDS_STATE_DIR (prazno = start.sh nastavi na ~/.openhands)
+set_if_empty "OPENHANDS_STATE_DIR" ""
+
 # Nastavi privzeti port
 set_if_empty "OPENHANDS_PORT" "3000"
 
