@@ -463,12 +463,22 @@ if [[ -d "${OPENHANDS_STATE_DIR}" ]]; then
         fi
     fi
 
-    chmod 755 "${OPENHANDS_STATE_DIR}" 2>/dev/null || {
+    # KRITICNO: chmod 777 — OpenHands container tece kot 'enduser' (SANDBOX_USER_ID),
+    # ki ni nujno isti kot host user. 777 zagotavlja da VSAK user lahko pise.
+    chmod 777 "${OPENHANDS_STATE_DIR}" 2>/dev/null || {
         if command -v sudo &>/dev/null; then
-            sudo chmod 755 "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
+            sudo chmod 777 "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
         fi
     }
 fi
+
+# Pre-ustvari poddirektorije ki jih OpenHands potrebuje (sessions, itd.)
+# Ce ne obstajajo, jih container poskusi ustvariti — ce nima pravic, pade.
+for SUBDIR in sessions logs cache; do
+    mkdir -p "${OPENHANDS_STATE_DIR}/${SUBDIR}" 2>/dev/null || true
+    chmod 777 "${OPENHANDS_STATE_DIR}/${SUBDIR}" 2>/dev/null || true
+done
+log_ok "State direktorij pripravljen: ${OPENHANDS_STATE_DIR} (chmod 777)"
 
 # Nastavi OPENHANDS_STATE_DIR v .env ce ni ze nastavljen
 if ! grep -q "^OPENHANDS_STATE_DIR=" "${SCRIPT_DIR}/.env" 2>/dev/null; then
@@ -508,6 +518,8 @@ cat > "${SETTINGS_FILE}" <<EOF
   "security_analyzer": ""
 }
 EOF
+# Nastavi settings.json kot world-writable — container enduser mora lahko pise/posodablja
+chmod 666 "${SETTINGS_FILE}" 2>/dev/null || true
 log_ok "settings.json posodobljen: model=${SETTINGS_LLMMODEL}, base_url=${SETTINGS_LLMBASE}"
 
 log_ok "Direktoriji pripravljeni:"
