@@ -87,14 +87,32 @@ enable_history_truncation = true
 enable_plan_mode = true
 
 #################################### Sandbox ###################################
+# POMEMBNO: Execution container-ji so EFEMERNI (per-session).
+# Lifecycle upravlja OpenHands backend, ne Docker Compose.
+# Runtime image (runtime:0.62-nikolaik) vsebuje celoten OpenHands runtime stack
+# (Runtime API server + agent_skills + tool execution engine + base tools).
+# To NI samo nikolaik/python-nodejs — brez OpenHands layer-ja execution ne deluje.
+##############################################################################
 [sandbox]
 # Timeout za sandbox akcije (sekunde)
 timeout = 120
 
-# Base image za sandbox
+# Timeout za inicializacijo runtime-a (handshake) — ce runtime API ne vrne READY
+# v tem casu, se seja ne zazene. Povecaj ce mas pocasnejso mrező ali disk.
+remote_runtime_init_timeout = 180
+
+# Base image za sandbox (osnova za runtime build)
 base_container_image = "nikolaik/python-nodejs:python3.12-nodejs22"
 
-# Inicializacija pluginov (Jupyter, agent_skills, VSCode)
+# UID za sandbox uporabnika — MORA ustrezati host UID za pravilne pravice
+# start.sh avtomatsko zazna in nastavi prek SANDBOX_USER_ID env var.
+# Ce UID ne ustreza: permission denied, git/pip napake v workspace-u.
+# Privzeto: 1000 (standardni Linux uporabnik)
+user_id = 1000
+
+# Inicializacija pluginov (Jupyter, agent_skills) — OBVEZNO za execution
+# Brez tega: runtime API se ne inicializira, orodja se ne registrirajo,
+# handshake READY signal ne pride.
 initialize_plugins = true
 
 # Auto-lint po urejanju
@@ -103,13 +121,14 @@ enable_auto_lint = false
 # Host omrezje izklopljeno (sandbox je izoliran, a ima dostop do interneta)
 use_host_network = false
 
-# Zadrzi runtime po koncu seje
+# Lifecycle nastavitve za efemerne execution container-je:
+# keep_runtime_alive: ce true, container ostane po koncu seje (za debugging)
 keep_runtime_alive = false
 
-# Pavziraj zaprte runtime-e
+# pause_closed_runtimes: ce true, container se pavzira namesto odstrani
 pause_closed_runtimes = true
 
-# Zakasnitev pred zaprtjem (sekunde)
+# close_delay: zakasnitev pred odstranitvijo (sekunde)
 close_delay = 3600
 
 #################################### Security ###################################

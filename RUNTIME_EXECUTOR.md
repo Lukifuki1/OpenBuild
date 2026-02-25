@@ -1,114 +1,198 @@
 # RUNTIME_EXECUTOR.md — Kako OpenHands izvrsuje ukaze
 
-## Arhitektura
+## Dvokomponentna arhitektura
 
-OpenHands v0.62.0 uporablja **client-server arhitekturo** za izvrsevanje ukazov:
+OpenHands v0.62.0 ima **2 loceni runtime komponenti** (ne eno):
 
 ```
-+-------------------+       Docker Socket        +---------------------+
-|  OpenHands App    | =========================> |  Sandbox Container  |
-|  (openhands:0.62) |       ustvari/upravlja     |  (runtime:0.62-     |
-|                   |                             |   nikolaik)         |
-|  - Frontend UI    |       HTTP/WebSocket        |                     |
-|  - Agent Server   | <========================> |  - /bin/bash        |
-|  - LLM Client     |       ukazi/rezultati       |  - Python 3.12     |
-|  - Config Loader  |                             |  - Node.js 22      |
-+-------------------+                             |  - Playwright       |
-        |                                         |  - Jupyter          |
-        | HTTP (port 11434)                       |  - Git              |
-        v                                         +---------------------+
-+-------------------+
-|  Ollama Server    |
-|  (host machine)   |
-|  - qwen3-coder:30b|
-+-------------------+
++-------------------------------+
+|  1. APP CONTAINER             |
+|     (openhands:0.62)          |
+|                               |
+|  - Frontend UI (port 3000)    |       Docker Socket
+|  - Agent Logic (CodeActAgent) | =========================>  ustvari/upravlja
+|  - Tool Registry              |                              efemerne sandbox-e
+|  - LLM Client                 |
+|  - Config Loader              |
+|  - Container Lifecycle Mgr    |
++-------------------------------+
+        |           ^
+        | HTTP      | HTTP (port 11434)
+        | WebSocket |
+        v           v
++-------------------------------+    +-------------------+
+|  2. EXECUTION CONTAINER(S)    |    |  Ollama Server    |
+|     (runtime:0.62-nikolaik)   |    |  (host machine)   |
+|     ** EFEMEREN — per-session  |    |  - qwen3-coder:30b|
+|                               |    +-------------------+
+|  - Runtime API Server         |
+|  - /bin/bash                  |
+|  - Python 3.12 + pip          |
+|  - Node.js 22 + npm           |
+|  - Playwright + Chromium      |
+|  - Jupyter kernel             |
+|  - Git                        |
+|  - agent_skills plugin        |
++-------------------------------+
 ```
 
-### Tok izvrsevanja
+### Kljucna razlika
 
-1. Uporabnik poslje nalogo prek UI (port 3000)
-2. Agent Server poslje prompt na LLM (Ollama/Qwen3-Coder:30B)
-3. LLM vrne akcijo (npr. `CmdRunAction`, `FileEditAction`, `BrowseURLAction`)
-4. Agent Server poslje akcijo na **Sandbox Container** prek runtime API
-5. Sandbox Container izvrsi akcijo in vrne rezultat
-6. Agent Server poslje rezultat nazaj LLM-ju
-7. Cikel se ponavlja do zakljucka naloge
+- **App container** je **staticen** — vedno tece (docker-compose.yml)
+- **Execution container(i)** so **efemerni** — ustvarijo se per-task ali per-session
+- Lahko jih je **vec hkrati** (vec uporabnikov, vec sej)
+- **Lifecycle upravlja OpenHands backend** (ne Docker Compose)
 
-## Runtime Executor (Sandbox)
+To pomeni:
+- **Cleanup**: Ko se seja konca, se execution container odstrani (razen ce `keep_runtime_alive = true`)
+- **Volume mapping**: Workspace se montira v vsak execution container
+- **State persistence**: Stanje je v app container-ju in workspace volumnu, ne v execution container-ju
 
-### Kaj je runtime executor?
+## Runtime Image
 
-Runtime executor je **sandbox kontejner**, ki ga OpenHands ustvari prek Docker socket-a.
-Ta kontejner vsebuje celotno izvrsevalno okolje za agenta:
+### Kaj je `runtime:0.62-nikolaik`?
 
-- `/bin/bash` — shell za izvrsevanje ukazov
-- Python 3.12 + pip — za Python projekte
-- Node.js 22 + npm — za JavaScript projekte
-- Git — za verzioniranje
-- Playwright + Chromium — za brskanje po spletu
-- Jupyter kernel — za interaktivno Python izvrsevanje
+To je **uradni OpenHands runtime image**, zgrajen s strani OpenHands build sistema:
 
-### Kako se ustvari?
+- **Base layer**: `nikolaik/python-nodejs:python3.12-nodejs22` (Python + Node.js)
+- **OpenHands runtime layer**: Runtime API server, agent_skills, tool execution engine
+- **Ni samo nikolaik image** — vsebuje celoten OpenHands runtime stack
 
-1. OpenHands App prebere konfiguracijo iz `config.toml`
-2. Prek Docker socket-a (`/var/run/docker.sock`) ustvari nov kontejner
-3. Uporabi image: `docker.openhands.dev/openhands/runtime:0.62-nikolaik`
-4. Montira workspace volumen
-5. Inicializira plugine (Jupyter, agent_skills)
-6. Vzpostavi HTTP/WebSocket povezavo za komunikacijo
+Ce bi uporabili zgolj `nikolaik/python-nodejs` (brez OpenHands layer-ja):
+- agent_skills ne bi delovali
+- Runtime API ne bi obstajal
+- WebSocket kanal ne bi bil vzpostavljen
+- Tools se ne bi registrirali
 
-### Kljucne nastavitve v config.toml
+Zato je `runtime:0.62-nikolaik` **obvezen** — to je uradni image s celotnim runtime stackom.
 
-```toml
-[core]
-runtime = "docker"                    # Uporabi Docker za sandbox
-run_as_openhands = true               # Pravilne pravice v sandbox-u
+## Runtime API Handshake (KLJUCNO)
 
-[sandbox]
-base_container_image = "nikolaik/python-nodejs:python3.12-nodejs22"
-initialize_plugins = true             # Inicializiraj Jupyter, agent_skills
-timeout = 120                         # Timeout za posamezno akcijo (sekunde)
+### Zakaj je handshake najpomembnejsi del?
+
+Ko OpenHands ustvari execution container, se mora zgoditi **runtime API handshake**.
+To je dejanski moment, ko execution zacne delovati.
+
+### Koraki handshake-a
+
+```
+1. App container ustvari execution container prek Docker socket-a
+2. Execution container se zazene
+3. Runtime server ZNOTRAJ container-ja se inicializira
+4. Runtime server odpre HTTP endpoint (interni port)
+5. Runtime server registrira orodja (bash, editor, jupyter, browser, ...)
+6. Runtime server poslje READY signal
+7. App container prejme READY signal
+8. WebSocket kanal med app in execution container se odpre
+9. Izvrsevanje je pripravljeno
+```
+
+### Ce handshake ne uspe
+
+Agent **vidi runtime**, ampak **execution ne deluje**.
+
+To je **najpogostejsi razlog**, zakaj agent ne izvaja ukazov.
+
+Preverjanje:
+```bash
+# Preveri loge app container-ja za handshake napake
+docker logs openbuild-openhands 2>&1 | grep -i "runtime\|handshake\|ready\|timeout\|error"
+
+# Preveri ali se execution container ustvari
+docker ps -a | grep "openhands-runtime\|openhands-sandbox"
+
+# Preveri loge execution container-ja
+docker logs $(docker ps -a --filter "name=openhands" --format "{{.Names}}" | grep -v openbuild) 2>&1 | tail -20
+```
+
+Pogosti razlogi za neuspesen handshake:
+- Runtime image ni prenesena (`docker pull` jo prenese)
+- Docker socket ni dosegljiv v app container-ju
+- Premalo RAM-a za zagon novega container-ja
+- Port konflikti na internem omrezju
+- Timeout pretek (privzeto 120s za lokalni runtime)
+
+## 8 pogojev za izvrsevanje (VSI morajo biti resnični hkrati)
+
+OpenHands lahko izvrsuje ukaze **SAMO** ce so **vsi** naslednji pogoji resnični hkrati:
+
+| # | Pogoj                                        | Kako preveriti                                          | Konfiguracija                           |
+|---|----------------------------------------------|---------------------------------------------------------|-----------------------------------------|
+| 1 | Docker socket dosegljiv v app container-ju   | `docker exec openbuild-openhands ls /var/run/docker.sock` | docker-compose.yml: volume mount      |
+| 2 | Execution container se ustvari               | `docker ps -a \| grep openhands`                         | runtime image prenesena                |
+| 3 | Runtime server v execution container-ju se inicializira | `docker logs <exec-container>`                  | `initialize_plugins = true`            |
+| 4 | Orodja registrirana (tools registry)         | config.toml: `enable_cmd`, `enable_editor`, itd.       | `[agent]` sekcija v config.toml        |
+| 5 | WebSocket med app in execution container odprt | app container logi                                     | omrezna povezljivost                   |
+| 6 | Workspace zapisljiv (writable)               | `docker exec <exec-container> touch /workspace/test`    | volume mount z rw pravicami            |
+| 7 | LLM vrne action (ne samo text)               | model mora podpirati function calling                   | Qwen3-Coder:30B prek Ollama           |
+| 8 | Confirmation mode izklopljen                 | config.toml: `confirmation_mode = false`                | `[security]` sekcija                   |
+
+**Ce manjka SAMO ENA tocka, execution pade.**
+
+## Trije implicitni execution state-i
+
+OpenHands v0.62.0 formalno **nima** planning/execution flag-a.
+Ampak v praksi obstajajo **3 implicitni execution state-i**:
+
+### 1. POLNO IZVRSEVANJE (execution)
+- Pogoji: Tools enabled + Runtime OK + LLM vraca actions
+- Agent generira `CmdRunAction` → ukaz se izvrsi → rezultat se vrne
+- **To je cilj nase konfiguracije**
+
+### 2. PSEUDO PLANNING (tools enabled, runtime mrtev)
+- Pogoji: Tools enabled + Runtime dead/unreachable
+- Agent generira `CmdRunAction`, ampak **se nic ne zgodi**
+- Izgleda kot da agent "razmislja" — v resnici execution ne deluje
+- **Najpogostejsi failure mode** — tezko za diagnozo
+
+### 3. REASONING ONLY (tools disabled)
+- Pogoji: Tools disabled v config.toml
+- Agent ne more generirati action-ov — samo text
+- Uporabno samo za analizo, ne za izvrsevanje
+
+### Kako prepoznati pseudo-planning state?
+
+```bash
+# V app container logih iscite:
+docker logs openbuild-openhands 2>&1 | grep -i "action\|execute\|runtime\|error\|timeout"
+
+# Znaki pseudo-planning:
+# - Agent generira ukaze, a rezultatov ni
+# - "RuntimeError" ali "ConnectionError" v logih
+# - "Timeout waiting for runtime" v logih
+# - Execution container ni viden v `docker ps`
 ```
 
 ## Orodja (Tooling Layer)
 
 ### Registrirana orodja
 
-OpenHands v0.62.0 ima naslednja orodja, ki jih agent lahko uporabi:
+| Orodje                | Config kljuc          | Opis                                        | Zahteva runtime? |
+|-----------------------|-----------------------|---------------------------------------------|-------------------|
+| Shell/Bash            | `enable_cmd`          | Izvrsevanje ukazov v `/bin/bash`            | DA                |
+| Urejevalnik datotek   | `enable_editor`       | Urejanje datotek (str_replace_editor)       | DA                |
+| Brskalnik             | `enable_browsing`     | Brskanje po spletu (Playwright/BrowserGym)  | DA                |
+| Jupyter/IPython       | `enable_jupyter`      | Interaktivno Python izvrsevanje             | DA                |
+| Think                 | `enable_think`        | Razmisljanje brez akcije                    | NE                |
+| Finish                | `enable_finish`       | Zakljucitev naloge                          | NE                |
+| MCP                   | `enable_mcp`          | Model Context Protocol orodja               | DA                |
 
-| Orodje                | Config kljuc          | Opis                                        |
-|-----------------------|-----------------------|---------------------------------------------|
-| Shell/Bash            | `enable_cmd`          | Izvrsevanje ukazov v `/bin/bash`            |
-| Urejevalnik datotek   | `enable_editor`       | Urejanje datotek (str_replace_editor)       |
-| Brskalnik             | `enable_browsing`     | Brskanje po spletu (Playwright/BrowserGym)  |
-| Jupyter/IPython       | `enable_jupyter`      | Interaktivno Python izvrsevanje             |
-| Think                 | `enable_think`        | Razmisljanje brez akcije                    |
-| Finish                | `enable_finish`       | Zakljucitev naloge                          |
-| MCP                   | `enable_mcp`          | Model Context Protocol orodja               |
+### Pomembno: `enable_cmd = true` NE pomeni da execution deluje
 
-### Kako so orodja registrirana?
+`enable_cmd = true` **samo omogoci orodje v agentu** (tool registry).
+Ne pomeni, da agent dejansko **lahko** izvrsi ukaz.
 
-Orodja so registrirana v `[agent]` sekciji config.toml:
+Za dejansko izvrsevanje mora obstajati:
+1. Runtime API endpoint (v execution container-ju)
+2. Container lifecycle manager (v app container-ju)
+3. WebSocket command bridge (med app in execution container-jem)
 
-```toml
-[agent]
-enable_cmd = true          # Shell/Bash
-enable_editor = true       # Urejevalnik datotek
-enable_browsing = true     # Brskalnik
-enable_jupyter = true      # Jupyter/IPython
-enable_think = true        # Razmisljanje
-enable_finish = true       # Zakljucitev
-enable_mcp = true          # MCP orodja
-```
-
-Ce orodje ni omogoceno, agent **vidi okolje, ampak nima dovoljenja za akcijo**.
+Ce runtime API ne odgovarja:
+- Agent bo generiral `CmdRunAction`
+- Ampak se **ne bo nic zgodilo**
+- To je "pseudo-planning" state (opisano zgoraj)
 
 ## Pravice in politike (Permission/Policy)
-
-### Execution mode
-
-OpenHands v0.62.0 **nima** posebnega "planning mode" ali "analysis-only mode" na ravni runtime-a.
-Agent privzeto deluje v **polnem execution mode**.
 
 ### Confirmation mode
 
@@ -120,89 +204,168 @@ confirmation_mode = false    # Agent izvrsuje BREZ vprasevanja
 Ce je `confirmation_mode = true`, mora uporabnik potrditi vsako akcijo v UI.
 Za avtonomno delovanje MORA biti `false`.
 
-### Varnostni analizator
+**Dodatna opomba**: Tudi ce je `confirmation_mode = false`, lahko akcije se vedno blokira:
+- Reverse proxy, ki filtrira WebSocket prometa
+- CSP (Content Security Policy) na frontend-u, ki blokira runtime klic
+- Neveljaven session token
+- Omrezna politika (firewall med app in execution container-jem)
 
-```toml
-[security]
-# security_analyzer = ""    # Brez omejitev
-```
+To ni config problem, ampak **network/runtime policy problem**.
 
-Moznosti:
-- `""` ali odsotno — brez omejitev (polne pravice)
-- `"invariant"` — invariant analyzer (blokira nevarne akcije)
+### Workspace pravice in UID/GID
 
-Za polno izvrsevanje pustite prazno ali ne nastavite.
-
-### Workspace pravice
-
-Workspace volumen je montiran z `rw` pravicami:
 ```yaml
 volumes:
   - ./workspace:/opt/workspace_base    # Zapisljiv
 ```
 
-Agent lahko:
-- Ustvarja, ureja, brise datoteke
-- Namesca pakete
-- Zaganja projekte
-- Uporablja git
+**KRITICNA PODROBNOST**: Workspace mount deluje **samo ce**:
+1. **UID/GID** v execution container-ju ustreza host UID/GID
+2. **Filesystem** podpira inode locking (ext4: da, NFS: morda ne)
+3. **SELinux/AppArmor** ne blokira dostopa
+
+Ce UID/GID ne ustreza, se zgodijo:
+- `permission denied` napake
+- `git` ukazi ne delujejo
+- `pip install` ne deluje
+- Datoteke so ustvarjene z napacnim lastnikom
+
+**Resitev** (v nasi konfiguraciji):
+```toml
+[core]
+run_as_openhands = true              # Uporabi openhands uporabnika v sandbox-u
+
+[sandbox]
+user_id = 1000                        # Nastavi na vas host UID
+```
+
+`start.sh` avtomatsko zazna host UID in ga nastavi v konfiguraciji.
+
+Za produkcijsko okolje je priporocen **named volume** namesto bind mount-a:
+```yaml
+volumes:
+  openhands-workspace:
+    name: openbuild-workspace
+```
+
+## Execution container lifecycle
+
+### Ustvarjanje
+
+1. Uporabnik zacne novo sejo v UI
+2. App container prebere config.toml
+3. Prek Docker socket-a ustvari nov execution container iz `runtime:0.62-nikolaik`
+4. Montira workspace volumen
+5. Inicializira plugine
+6. Runtime API handshake (opisano zgoraj)
+7. Seja je pripravljena
+
+### Med sejo
+
+- Execution container tece neprekinjeno
+- Agent poslje ukaze prek WebSocket-a
+- Runtime server v execution container-ju izvrsi ukaze
+- Rezultati se vrnejo prek WebSocket-a
+
+### Koncanje
+
+- `keep_runtime_alive = false` (privzeto): Container se odstrani ob koncu seje
+- `keep_runtime_alive = true`: Container ostane (za debugging)
+- `pause_closed_runtimes = true`: Container se pavzira (ne odstrani)
+- `close_delay = 3600`: Zakasnitev pred odstranitvijo (sekunde)
+
+### Cleanup
+
+```bash
+# Preveri ali so ostali stari execution container-ji
+docker ps -a | grep "openhands"
+
+# Rocno ciscenje
+docker rm -f $(docker ps -a --filter "name=openhands-runtime" -q) 2>/dev/null
+docker rm -f $(docker ps -a --filter "name=openhands-sandbox" -q) 2>/dev/null
+```
 
 ## Pogosti problemi in resitve
 
-### Agent ne izvrsuje ukazov
+### 1. Agent ne izvrsuje ukazov (najpogostejsi problem)
 
-**Vzrok**: Runtime executor (sandbox kontejner) se ne ustvari.
+**Vzrok**: Runtime API handshake ni uspel.
 
-**Preverjanje**:
+**Diagnostika**:
 ```bash
-# Preveri ali Docker socket deluje
+# 1. Preveri ali Docker socket deluje v app container-ju
 docker exec openbuild-openhands ls /var/run/docker.sock
 
-# Preveri loge
-docker logs openbuild-openhands
+# 2. Preveri ali se execution container ustvari
+docker ps -a | grep "openhands"
+
+# 3. Preveri app container loge za handshake napake
+docker logs openbuild-openhands 2>&1 | grep -i "runtime\|handshake\|ready\|error\|timeout"
+
+# 4. Ce execution container obstaja, preveri njegove loge
+EXEC_CONTAINER=$(docker ps -a --filter "name=openhands" --format "{{.Names}}" | grep -v openbuild | head -1)
+if [[ -n "${EXEC_CONTAINER}" ]]; then
+    docker logs "${EXEC_CONTAINER}" 2>&1 | tail -30
+fi
 ```
 
-**Resitev**: Preveri da je `/var/run/docker.sock` montiran v docker-compose.yml.
+**Resitve**:
+1. Preveri Docker socket mount: `/var/run/docker.sock` v docker-compose.yml
+2. Prenesi runtime image: `docker pull docker.openhands.dev/openhands/runtime:0.62-nikolaik`
+3. Preveri RAM: execution container potrebuje vsaj 1-2 GiB
+4. Preveri `[sandbox]` nastavitve v config.toml
 
-### Agent vidi okolje, a nima dovoljenja
+### 2. Agent vidi okolje, a nima dovoljenja
 
-**Vzrok**: Orodja niso omogocena v config.toml.
+**Vzrok**: Orodja niso omogocena v config.toml ALI runtime ni dosegljiv.
 
-**Preverjanje**:
+**Diagnostika**:
 ```bash
 # Preveri config.toml
-grep 'enable_cmd' config/config.toml
-grep 'enable_editor' config/config.toml
+grep -E 'enable_(cmd|editor|browsing|jupyter|mcp)' config/config.toml
+
+# Preveri ali je runtime dosegljiv
+docker logs openbuild-openhands 2>&1 | grep -i "runtime\|connect"
 ```
 
-**Resitev**: Nastavi vsa `enable_*` polja na `true` v `[agent]` sekciji.
+### 3. Pseudo-planning state (agent "razmislja", a nic ne izvaja)
 
-### Agent je v "planning mode"
+**Vzrok**: Tools so enabled, ampak runtime je mrtev.
 
-**Vzrok**: `confirmation_mode = true` v `[security]` sekciji.
+**Diagnostika**: Glej "Kako prepoznati pseudo-planning state?" zgoraj.
 
-**Resitev**:
-```toml
-[security]
-confirmation_mode = false
-```
+**Resitev**: Ponastavi sejo, preveri runtime handshake.
 
-### Sandbox se ne zazene (timeout)
+### 4. Permission denied v workspace-u
 
-**Vzrok**: Runtime image ni prenesena ali Docker nima dovolj virov.
+**Vzrok**: UID/GID mismatch med host-om in execution container-jem.
 
-**Preverjanje**:
+**Diagnostika**:
 ```bash
-# Preveri ali image obstaja
-docker images | grep runtime
+# Na hostu
+ls -la workspace/
+id
 
-# Prenesi ce manjka
-docker pull docker.openhands.dev/openhands/runtime:0.62-nikolaik
+# V app container-ju
+docker exec openbuild-openhands id
 ```
 
-### Brskalnik ne deluje
+**Resitev**: Nastavi `user_id` v config.toml na vas host UID (privzeto: 1000).
 
-**Vzrok**: `enable_browsing` ali `enable_browser` ni nastavljen na `true`.
+### 5. Sandbox timeout
+
+**Vzrok**: Runtime image ni prenesena ali ni dovolj virov.
+
+**Diagnostika**:
+```bash
+docker images | grep runtime
+free -h
+docker system df
+```
+
+**Resitev**: `docker pull docker.openhands.dev/openhands/runtime:0.62-nikolaik`
+
+### 6. Brskalnik ne deluje
 
 **Preverjanje**:
 ```bash
@@ -210,7 +373,7 @@ grep 'enable_browsing' config/config.toml
 grep 'enable_browser' config/config.toml
 ```
 
-**Resitev**: Oba morata biti `true`:
+Oba morata biti `true`:
 ```toml
 [core]
 enable_browser = true
@@ -219,20 +382,29 @@ enable_browser = true
 enable_browsing = true
 ```
 
-### Ollama ni dosegljiv iz kontejnerja
+### 7. Ollama ni dosegljiv iz container-ja
 
-**Vzrok**: `host.docker.internal` ne deluje ali Ollama ne tece.
-
-**Preverjanje**:
+**Diagnostika**:
 ```bash
 # Na hostu
 curl http://localhost:11434/api/tags
 
-# Iz kontejnerja
-docker exec openbuild-openhands curl http://host.docker.internal:11434/api/tags
+# Iz app container-ja
+docker exec openbuild-openhands curl -s http://host.docker.internal:11434/api/tags
 ```
 
 **Resitev**:
 1. Preveri da Ollama tece: `ollama serve`
-2. Preveri da je `extra_hosts` nastavljen v docker-compose.yml
-3. Preveri da je model prisoten: `ollama pull qwen3-coder:30b`
+2. Preveri `extra_hosts` v docker-compose.yml: `host.docker.internal:host-gateway`
+3. Preveri model: `ollama pull qwen3-coder:30b`
+
+### 8. WebSocket prekinitev
+
+**Vzrok**: Reverse proxy ali firewall blokira WebSocket promet.
+
+**Diagnostika**:
+```bash
+docker logs openbuild-openhands 2>&1 | grep -i "websocket\|ws\|disconnect"
+```
+
+**Resitev**: Preveri da nobena omrezna komponenta ne filtrira WebSocket prometa.

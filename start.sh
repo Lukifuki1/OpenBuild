@@ -274,6 +274,27 @@ set +a
 
 log_ok ".env nalozen"
 
+# ---- UID/GID zaznava za sandbox pravice ----
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+log_info "Host UID/GID: ${HOST_UID}/${HOST_GID}"
+
+# Nastavi SANDBOX_USER_ID v .env ce ni ze nastavljen ali je prazen
+if grep -q "^SANDBOX_USER_ID=$" "${SCRIPT_DIR}/.env" 2>/dev/null || ! grep -q "^SANDBOX_USER_ID=" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    if grep -q "^SANDBOX_USER_ID=" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+        sed -i "s|^SANDBOX_USER_ID=.*|SANDBOX_USER_ID=${HOST_UID}|" "${SCRIPT_DIR}/.env"
+    else
+        echo "SANDBOX_USER_ID=${HOST_UID}" >> "${SCRIPT_DIR}/.env"
+    fi
+    log_info "SANDBOX_USER_ID nastavljen na ${HOST_UID} (host UID)"
+fi
+
+# Ponovno nalozi .env z SANDBOX_USER_ID
+set -a
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/.env"
+set +a
+
 # ============================================
 # 5. PRIPRAVA DIREKTORIJEV
 # ============================================
@@ -285,7 +306,8 @@ WORKSPACE_DIR="${WORKSPACE_BASE:-${SCRIPT_DIR}/workspace}"
 mkdir -p "${WORKSPACE_DIR}"
 mkdir -p "${SCRIPT_DIR}/data"
 
-# Nastavi pravilne pravice
+# Nastavi pravilne pravice (uporabi host UID)
+chown -R "${HOST_UID}:${HOST_GID}" "${WORKSPACE_DIR}" 2>/dev/null || true
 chmod 755 "${WORKSPACE_DIR}"
 chmod 755 "${SCRIPT_DIR}/data"
 
@@ -294,7 +316,7 @@ mkdir -p "${HOME}/.openhands"
 chmod 755 "${HOME}/.openhands"
 
 log_ok "Direktoriji pripravljeni:"
-log_info "  Workspace: ${WORKSPACE_DIR}"
+log_info "  Workspace: ${WORKSPACE_DIR} (lastnik: ${HOST_UID}:${HOST_GID})"
 log_info "  Data:      ${SCRIPT_DIR}/data"
 log_info "  State:     ${HOME}/.openhands"
 
