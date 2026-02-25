@@ -449,8 +449,23 @@ chmod 755 "${WORKSPACE_DIR}"
 chmod 755 "${SCRIPT_DIR}/data"
 
 # Ustvari ~/.openhands ce ne obstaja (za lokalno stanje)
-mkdir -p "${HOME}/.openhands"
-chmod 755 "${HOME}/.openhands"
+OPENHANDS_STATE_DIR="${HOME}/.openhands"
+mkdir -p "${OPENHANDS_STATE_DIR}"
+
+# Ce je ~/.openhands ustvaril root (ali drug user), popravi owner/pravice brez hard fail-a
+if [[ -d "${OPENHANDS_STATE_DIR}" ]]; then
+    if ! chown -R "${HOST_UID}:${HOST_GID}" "${OPENHANDS_STATE_DIR}" 2>/dev/null; then
+        if command -v sudo &>/dev/null; then
+            sudo chown -R "${HOST_UID}:${HOST_GID}" "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
+        fi
+    fi
+
+    chmod 755 "${OPENHANDS_STATE_DIR}" 2>/dev/null || {
+        if command -v sudo &>/dev/null; then
+            sudo chmod 755 "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
+        fi
+    }
+fi
 
 # Generiraj privzeti settings.json, da API smoke test lahko ustvari conversation brez ročnega klikanja v UI
 SETTINGS_FILE="${HOME}/.openhands/settings.json"
@@ -567,6 +582,20 @@ OLLAMA_HOST="${LLM_BASE_URL:-http://localhost:11434}"
 OLLAMA_CHECK_URL="$(echo "${OLLAMA_HOST}" | sed 's|host\.docker\.internal|localhost|g')"
 
 log_info "Preverjam Ollama na: ${OLLAMA_CHECK_URL}"
+
+# Opomba: ce uporabljas host.docker.internal (privzeto), mora Ollama na hostu poslusal na 0.0.0.0,
+# sicer ga kontejnerji ne morejo doseci (ce poslusa samo na 127.0.0.1).
+if echo "${OLLAMA_HOST}" | grep -q 'host\.docker\.internal'; then
+    OLLAMA_PORT="$(echo "${OLLAMA_CHECK_URL}" | sed -n 's|.*:\([0-9]\+\).*|\1|p')"
+    OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+
+    if command -v ss &>/dev/null; then
+        if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+            log_warn "Ollama izgleda poslusa samo na 127.0.0.1:${OLLAMA_PORT}. Docker kontejnerji ga morda NE bodo dosegli."
+            log_warn "Zazeni ga takole: OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
+        fi
+    fi
+fi
 
 OLLAMA_REACHABLE=false
 OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
