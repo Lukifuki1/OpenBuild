@@ -13,6 +13,7 @@
 data/
 data/**
 .openhands/
+.openhands-state/
 workspace/
 
 # ----- Docker volumes & artifacts -----
@@ -51,6 +52,7 @@ Thumbs.db
 
 # ----- Logs -----
 *.log
+ollama.log
 logs/
 
 # ----- Models & large artifacts -----

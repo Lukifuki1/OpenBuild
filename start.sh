@@ -7,6 +7,36 @@
 # ============================================
 set -euo pipefail
 
+# ---- CLI argumenti ----
+MODE="smart"  # smart (privzeto), restart, full
+for arg in "$@"; do
+    case "${arg}" in
+        --restart|-r)
+            MODE="restart"
+            ;;
+        --full|-f)
+            MODE="full"
+            ;;
+        --help|-h)
+            echo "Uporaba: ./start.sh [OPCIJA]"
+            echo ""
+            echo "Opcije:"
+            echo "  (brez)       Pametni nacin: preveri okolje, namesti manjkajoce,"
+            echo "               preskoci docker pull ce image ze obstaja lokalno."
+            echo "  --restart    Hitri restart: preveri okolje, preskoci pull/build,"
+            echo "               samo zaženi/restartaj kontejnerje."
+            echo "  --full       Polni zagon: preveri okolje, namesti vse,"
+            echo "               prisili docker pull in rebuild."
+            echo "  --help       Pokazi to pomoc."
+            exit 0
+            ;;
+        *)
+            echo "Neznana opcija: ${arg}. Uporabi --help za pomoc."
+            exit 1
+            ;;
+    esac
+done
+
 # ---- Barve za izpis ----
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -37,7 +67,7 @@ fail() {
 # ---- Inicializacija loga ----
 : > "${LOG_FILE}"
 separator
-log_info "OpenBuild + OpenHands v0.62.0 — Start $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+log_info "OpenBuild + OpenHands v0.62.0 — Start $(date -u '+%Y-%m-%d %H:%M:%S UTC') [nacin: ${MODE}]"
 separator
 
 # ============================================
@@ -94,7 +124,8 @@ log_info "Datotecni sistem: ${FS_TYPE}"
 # ============================================
 log_step "2/10 — Preverjanje odvisnosti"
 
-REQUIRED_CMDS=(git curl jq openssl docker)
+# Obvezni ukazi za delovanje
+REQUIRED_CMDS=(git curl jq openssl docker python3 make)
 MISSING_CMDS=()
 
 for cmd in "${REQUIRED_CMDS[@]}"; do
@@ -108,19 +139,45 @@ if [[ ! -d /etc/ssl/certs ]] || [[ ! -f /etc/ssl/certs/ca-certificates.crt ]]; t
     MISSING_CMDS+=("ca-certificates")
 fi
 
+# Preveri pip/pip3
+if ! command -v pip3 &>/dev/null && ! command -v pip &>/dev/null; then
+    MISSING_CMDS+=("pip3")
+fi
+
+# Preveri build-essential (gcc kot indikator)
+if ! command -v gcc &>/dev/null; then
+    MISSING_CMDS+=("build-essential")
+fi
+
+# Preveri gpg (potreben za NVIDIA repo dodajanje)
+if ! command -v gpg &>/dev/null; then
+    MISSING_CMDS+=("gpg")
+fi
+
+# Preveri ss/netstat (port check)
+if ! command -v ss &>/dev/null && ! command -v netstat &>/dev/null; then
+    MISSING_CMDS+=("ss")
+fi
+
+# Preslikava ukazov v apt pakete
+declare -A CMD_TO_PKG=(
+    [git]="git"
+    [curl]="curl"
+    [jq]="jq"
+    [openssl]="openssl"
+    [docker]="docker.io"
+    [python3]="python3"
+    [pip3]="python3-pip"
+    [make]="make"
+    [build-essential]="build-essential"
+    [gpg]="gnupg"
+    [ss]="iproute2"
+    [ca-certificates]="ca-certificates"
+)
+
 if (( ${#MISSING_CMDS[@]} > 0 )); then
     log_warn "Manjkajoci paketi: ${MISSING_CMDS[*]}"
     log_info "Namescanje manjkajocih paketov ..."
-
-    # Preslikava ukazov v apt pakete
-    declare -A CMD_TO_PKG=(
-        [git]="git"
-        [curl]="curl"
-        [jq]="jq"
-        [openssl]="openssl"
-        [docker]="docker.io"
-        [ca-certificates]="ca-certificates"
-    )
 
     PKGS_TO_INSTALL=()
     for cmd in "${MISSING_CMDS[@]}"; do
@@ -135,7 +192,7 @@ if (( ${#MISSING_CMDS[@]} > 0 )); then
         fail "apt-get ni na voljo. Prosim namesti rocno: ${MISSING_CMDS[*]}"
     fi
 
-    # Ponovno preveri
+    # Ponovno preveri obvezne ukaze
     for cmd in "${REQUIRED_CMDS[@]}"; do
         command -v "${cmd}" &>/dev/null || fail "Ukaz '${cmd}' se vedno ni na voljo po namestitvi."
     done
@@ -144,6 +201,26 @@ fi
 for cmd in "${REQUIRED_CMDS[@]}"; do
     log_ok "${cmd}: $(command -v "${cmd}")"
 done
+
+# Dodatni paketi — preveri in namesti ce manjkajo
+if command -v pip3 &>/dev/null; then
+    log_ok "pip3: $(command -v pip3)"
+elif command -v pip &>/dev/null; then
+    log_ok "pip: $(command -v pip)"
+fi
+
+if command -v gcc &>/dev/null; then
+    log_ok "build-essential: $(gcc --version | head -1)"
+fi
+
+# Python verzija
+PYTHON_VERSION="$(python3 --version 2>/dev/null | awk '{print $2}')"
+log_info "Python: ${PYTHON_VERSION}"
+PY_MAJOR="$(echo "${PYTHON_VERSION}" | cut -d. -f1)"
+PY_MINOR="$(echo "${PYTHON_VERSION}" | cut -d. -f2)"
+if (( PY_MAJOR < 3 )) || (( PY_MAJOR == 3 && PY_MINOR < 8 )); then
+    log_warn "Python verzija ${PYTHON_VERSION} je prestara. Priporocena je vsaj 3.8+."
+fi
 
 # ---- Docker verzija ----
 DOCKER_VERSION="$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo 'ni-dosegljiv')"
@@ -182,16 +259,36 @@ log_ok "Docker Compose: ${COMPOSE_CMD}"
 
 # ---- Preverjanje portov ----
 OPENHANDS_PORT="${OPENHANDS_PORT:-3000}"
+PORT_IN_USE=false
+PORT_BY_OWN_CONTAINER=false
+
 if command -v ss &>/dev/null; then
     if ss -tlnp 2>/dev/null | grep -q ":${OPENHANDS_PORT} "; then
-        fail "Port ${OPENHANDS_PORT} je ze zaseden. Spremenite OPENHANDS_PORT v .env ali ustavite servis na tem portu."
+        PORT_IN_USE=true
     fi
 elif command -v netstat &>/dev/null; then
     if netstat -tlnp 2>/dev/null | grep -q ":${OPENHANDS_PORT} "; then
-        fail "Port ${OPENHANDS_PORT} je ze zaseden."
+        PORT_IN_USE=true
     fi
 fi
-log_ok "Port ${OPENHANDS_PORT} je prost"
+
+# Ce port zaseden, preveri ali je to nas lastni OpenHands kontejner
+if [[ "${PORT_IN_USE}" == "true" ]]; then
+    # Preveri ali docker compose ze tece z nasim stack-om
+    if docker compose ps --format '{{.State}}' openhands 2>/dev/null | grep -qi 'running'; then
+        PORT_BY_OWN_CONTAINER=true
+        log_info "Port ${OPENHANDS_PORT} zaseden z nasim OpenHands kontejnerjem (restart nacin)"
+    elif docker-compose ps --format '{{.State}}' openhands 2>/dev/null | grep -qi 'running'; then
+        PORT_BY_OWN_CONTAINER=true
+        log_info "Port ${OPENHANDS_PORT} zaseden z nasim OpenHands kontejnerjem (restart nacin)"
+    fi
+
+    if [[ "${PORT_BY_OWN_CONTAINER}" == "false" ]]; then
+        fail "Port ${OPENHANDS_PORT} je ze zaseden z drugim procesom. Spremenite OPENHANDS_PORT v .env ali ustavite servis na tem portu."
+    fi
+else
+    log_ok "Port ${OPENHANDS_PORT} je prost"
+fi
 
 # ---- iptables/nftables stanje ----
 if command -v iptables &>/dev/null; then
@@ -239,8 +336,38 @@ if command -v nvidia-smi &>/dev/null; then
                     fi
                 fi
             else
-                log_warn "nvidia-container-toolkit ni namescen. Nadaljujem v CPU nacinu."
-                log_warn "Za GPU podporo namesti: sudo apt-get install -y nvidia-container-toolkit"
+                log_warn "nvidia-container-toolkit ni namescen."
+                log_info "Poskusam namestiti nvidia-container-toolkit ..."
+                if command -v apt-get &>/dev/null; then
+                    # Dodaj nvidia container toolkit repo ce ni prisoten
+                    if ! apt-cache policy nvidia-container-toolkit 2>/dev/null | grep -q 'Candidate'; then
+                        log_info "Dodajam NVIDIA container toolkit repozitorij ..."
+                        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null || true
+                        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null 2>/dev/null || true
+                        sudo apt-get update -qq 2>/dev/null || true
+                    fi
+                    if sudo apt-get install -y -qq nvidia-container-toolkit 2>/dev/null; then
+                        sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null || true
+                        sudo systemctl restart docker 2>/dev/null || true
+                        log_ok "nvidia-container-toolkit namescen in konfiguriran"
+                        # Ponovno preveri
+                        if docker info 2>/dev/null | grep -qi 'nvidia'; then
+                            GPU_AVAILABLE=true
+                            log_ok "Docker runtime podpira NVIDIA GPU po namestitvi toolkit-a"
+                        else
+                            log_warn "Docker se vedno ne vidi NVIDIA runtime-a po namestitvi. Morda je potreben ponovni zagon Docker-ja."
+                        fi
+                    else
+                        log_warn "Namestitev nvidia-container-toolkit ni uspela."
+                        log_warn "Za rocno namestitev: sudo apt-get install -y nvidia-container-toolkit"
+                        log_warn "Nadaljujem v CPU nacinu."
+                    fi
+                else
+                    log_warn "apt-get ni na voljo. Namesti rocno: nvidia-container-toolkit"
+                    log_warn "Nadaljujem v CPU nacinu."
+                fi
             fi
         fi
     fi
@@ -270,7 +397,11 @@ fi
 log_step "4/10 — Generiranje .env konfiguracije"
 
 chmod +x "${SCRIPT_DIR}/config/generate-env.sh"
-bash "${SCRIPT_DIR}/config/generate-env.sh"
+if [[ "${MODE}" == "restart" ]] && [[ -f "${SCRIPT_DIR}/.env" ]]; then
+    log_info "Restart nacin: .env ze obstaja — preskakujem generate-env.sh"
+else
+    bash "${SCRIPT_DIR}/config/generate-env.sh"
+fi
 
 # Nalozi .env
 set -a
@@ -317,35 +448,84 @@ chown -R "${HOST_UID}:${HOST_GID}" "${WORKSPACE_DIR}" 2>/dev/null || true
 chmod 755 "${WORKSPACE_DIR}"
 chmod 755 "${SCRIPT_DIR}/data"
 
-# Ustvari ~/.openhands ce ne obstaja (za lokalno stanje)
-mkdir -p "${HOME}/.openhands"
-chmod 755 "${HOME}/.openhands"
+# Ustvari OPENHANDS_STATE_DIR (za lokalno stanje — bind mount v kontejner)
+# POMEMBNO: Docker compose montira to pot v /.openhands v kontejnerju.
+# Ce uporabis named volume namesto bind mount, kontejner NE more pisati settings.json!
+OPENHANDS_STATE_DIR="${OPENHANDS_STATE_DIR:-${HOME}/.openhands}"
+mkdir -p "${OPENHANDS_STATE_DIR}"
+log_info "OPENHANDS_STATE_DIR: ${OPENHANDS_STATE_DIR}"
+
+# Ce je ~/.openhands ustvaril root (ali drug user), popravi owner/pravice brez hard fail-a
+if [[ -d "${OPENHANDS_STATE_DIR}" ]]; then
+    if ! chown -R "${HOST_UID}:${HOST_GID}" "${OPENHANDS_STATE_DIR}" 2>/dev/null; then
+        if command -v sudo &>/dev/null; then
+            sudo chown -R "${HOST_UID}:${HOST_GID}" "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
+        fi
+    fi
+
+    # KRITICNO: chmod 777 — OpenHands container tece kot 'enduser' (SANDBOX_USER_ID),
+    # ki ni nujno isti kot host user. 777 zagotavlja da VSAK user lahko pise.
+    chmod 777 "${OPENHANDS_STATE_DIR}" 2>/dev/null || {
+        if command -v sudo &>/dev/null; then
+            sudo chmod 777 "${OPENHANDS_STATE_DIR}" 2>/dev/null || true
+        fi
+    }
+fi
+
+# Pre-ustvari poddirektorije ki jih OpenHands potrebuje (sessions, itd.)
+# Ce ne obstajajo, jih container poskusi ustvariti — ce nima pravic, pade.
+for SUBDIR in sessions logs cache; do
+    mkdir -p "${OPENHANDS_STATE_DIR}/${SUBDIR}" 2>/dev/null || true
+    chmod 777 "${OPENHANDS_STATE_DIR}/${SUBDIR}" 2>/dev/null || true
+done
+log_ok "State direktorij pripravljen: ${OPENHANDS_STATE_DIR} (chmod 777)"
+
+# Nastavi OPENHANDS_STATE_DIR v .env ce ni ze nastavljen
+if ! grep -q "^OPENHANDS_STATE_DIR=" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    echo "OPENHANDS_STATE_DIR=${OPENHANDS_STATE_DIR}" >> "${SCRIPT_DIR}/.env"
+    log_info "OPENHANDS_STATE_DIR dodan v .env: ${OPENHANDS_STATE_DIR}"
+elif grep -q "^OPENHANDS_STATE_DIR=$" "${SCRIPT_DIR}/.env" 2>/dev/null; then
+    sed -i "s|^OPENHANDS_STATE_DIR=.*|OPENHANDS_STATE_DIR=${OPENHANDS_STATE_DIR}|" "${SCRIPT_DIR}/.env"
+    log_info "OPENHANDS_STATE_DIR posodobljen v .env: ${OPENHANDS_STATE_DIR}"
+fi
+
+# Ponovno nalozi .env z OPENHANDS_STATE_DIR
+set -a
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/.env"
+set +a
 
 # Generiraj privzeti settings.json, da API smoke test lahko ustvari conversation brez ročnega klikanja v UI
-SETTINGS_FILE="${HOME}/.openhands/settings.json"
-if [[ ! -f "${SETTINGS_FILE}" ]]; then
-    log_info "Generiram privzeti settings.json (LLM + confirmation_mode=false)"
+SETTINGS_FILE="${OPENHANDS_STATE_DIR}/settings.json"
+# Vedno generiraj/posodobi settings.json z aktualnimi nastavitvami
+# To zagotavlja da UI vedno deluje brez rocnega klikanja v nastavitvah
+log_info "Generiram/posodabljam settings.json (LLM + confirmation_mode=false)"
 
-    SETTINGS_LLMMODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
-    SETTINGS_LLMBASE="${LLM_BASE_URL:-http://host.docker.internal:11434}"
-    SETTINGS_LLMKEY="${LLM_API_KEY:-local-key}"
+SETTINGS_LLMMODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
+SETTINGS_LLMBASE="${LLM_BASE_URL:-http://host.docker.internal:11434}"
+SETTINGS_LLMKEY="${LLM_API_KEY:-local-key}"
+SETTINGS_AGENT="${AGENT_TYPE:-CodeActAgent}"
 
-    cat > "${SETTINGS_FILE}" <<EOF
+cat > "${SETTINGS_FILE}" <<EOF
 {
   "language": "sl",
+  "agent": "${SETTINGS_AGENT}",
   "confirmation_mode": false,
   "llm_model": "${SETTINGS_LLMMODEL}",
   "llm_base_url": "${SETTINGS_LLMBASE}",
   "llm_api_key": "${SETTINGS_LLMKEY}",
-  "sandbox_runtime_container_image": "${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
+  "sandbox_runtime_container_image": "${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}",
+  "security_analyzer": ""
 }
 EOF
-fi
+# Nastavi settings.json kot world-writable — container enduser mora lahko pise/posodablja
+chmod 666 "${SETTINGS_FILE}" 2>/dev/null || true
+log_ok "settings.json posodobljen: model=${SETTINGS_LLMMODEL}, base_url=${SETTINGS_LLMBASE}"
 
 log_ok "Direktoriji pripravljeni:"
 log_info "  Workspace: ${WORKSPACE_DIR} (lastnik: ${HOST_UID}:${HOST_GID})"
 log_info "  Data:      ${SCRIPT_DIR}/data"
-log_info "  State:     ${HOME}/.openhands"
+log_info "  State:     ${OPENHANDS_STATE_DIR}"
 
 # ============================================
 # 5b. PREVERJANJE CONFIG.TOML (Runtime, Orodja, Pravice)
@@ -423,96 +603,273 @@ fi
 log_ok "Preverjanje config.toml zakljuceno"
 
 # ============================================
-# 6. DOCKER IMAGE-JI
+# 6. OLLAMA — NAMESTITEV, KONFIGURACIJA, ZAGON, MODEL
 # ============================================
-# ============================================
-# 6. PREVERJANJE OLLAMA POVEZLJIVOSTI
-# ============================================
-log_step "6/10 — Preverjanje Ollama povezljivosti"
+log_step "6/10 — Ollama (namestitev, konfiguracija, zagon, model)"
 
-# Ollama URL (iz .env ali privzeto)
-OLLAMA_HOST="${LLM_BASE_URL:-http://localhost:11434}"
-# Pretvori host.docker.internal v localhost za host-side preverjanje
-OLLAMA_CHECK_URL="$(echo "${OLLAMA_HOST}" | sed 's|host\.docker\.internal|localhost|g')"
+# --- 6a. Namestitev Ollama ce ni prisotna ---
+if ! command -v ollama &>/dev/null; then
+    log_warn "Ollama ni namescena. Namescanje ..."
+    if curl -fsSL https://ollama.com/install.sh | sh 2>&1 | tee -a "${LOG_FILE}"; then
+        log_ok "Ollama namescena: $(ollama --version 2>/dev/null || echo 'ok')"
+    else
+        fail "Namestitev Ollama ni uspela. Namesti rocno: https://ollama.com/download"
+    fi
+else
+    log_ok "Ollama ze namescena: $(ollama --version 2>/dev/null || echo 'ok')"
+fi
 
-log_info "Preverjam Ollama na: ${OLLAMA_CHECK_URL}"
+# --- 6b. Multi-GPU + tensor parallel konfiguracija ---
+OLLAMA_PORT="11434"
+OLLAMA_BIND="0.0.0.0:${OLLAMA_PORT}"
+OLLAMA_CHECK_URL="http://localhost:${OLLAMA_PORT}"
 
+# Zaznaj stevilo NVIDIA GPU-jev za multi-GPU/tensor parallel
+OLLAMA_GPU_COUNT=0
+if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+    OLLAMA_GPU_COUNT="$(nvidia-smi -L 2>/dev/null | wc -l)"
+fi
+
+OLLAMA_ENV_VARS="OLLAMA_HOST=${OLLAMA_BIND}"
+
+if (( OLLAMA_GPU_COUNT > 1 )); then
+    log_info "Multi-GPU zaznano: ${OLLAMA_GPU_COUNT} GPU-jev — aktiviram tensor parallel"
+    # OLLAMA_SCHED_SPREAD=1: razporedi model cez vse GPU-je (tensor parallel)
+    # OLLAMA_FLASH_ATTENTION=1: hitrejse attention racunanje
+    # OLLAMA_NUM_PARALLEL: dovoli vec hkratnih zahtev
+    OLLAMA_ENV_VARS="${OLLAMA_ENV_VARS} OLLAMA_SCHED_SPREAD=true OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_PARALLEL=4"
+    log_ok "Ollama GPU nastavitve: SCHED_SPREAD=true, FLASH_ATTENTION=1, NUM_PARALLEL=4"
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+    log_info "En GPU zaznan — Ollama bo uporabila en GPU"
+    OLLAMA_ENV_VARS="${OLLAMA_ENV_VARS} OLLAMA_FLASH_ATTENTION=1"
+else
+    log_info "Ni GPU-jev — Ollama bo delovala v CPU nacinu"
+fi
+
+# --- 6c. Nastavi systemd override ce Ollama tece kot servis ---
+OLLAMA_SYSTEMD_OVERRIDE="/etc/systemd/system/ollama.service.d/override.conf"
+OLLAMA_NEEDS_RESTART=false
+
+# Pripravi vsebino systemd override
+OLLAMA_SYSTEMD_CONTENT="[Service]"
+OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_HOST=${OLLAMA_BIND}\""
+if (( OLLAMA_GPU_COUNT > 1 )); then
+    OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_SCHED_SPREAD=true\"
+Environment=\"OLLAMA_FLASH_ATTENTION=1\"
+Environment=\"OLLAMA_NUM_PARALLEL=4\""
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+    OLLAMA_SYSTEMD_CONTENT="${OLLAMA_SYSTEMD_CONTENT}
+Environment=\"OLLAMA_FLASH_ATTENTION=1\""
+fi
+
+if systemctl list-unit-files ollama.service &>/dev/null 2>&1; then
+    log_info "Ollama systemd servis zaznan"
+
+    # Preveri ali je override ze pravilen
+    CURRENT_OVERRIDE=""
+    if [[ -f "${OLLAMA_SYSTEMD_OVERRIDE}" ]]; then
+        CURRENT_OVERRIDE="$(cat "${OLLAMA_SYSTEMD_OVERRIDE}" 2>/dev/null || true)"
+    fi
+
+    if [[ "${CURRENT_OVERRIDE}" != "${OLLAMA_SYSTEMD_CONTENT}" ]]; then
+        log_info "Posodabljam systemd override (OLLAMA_HOST + GPU nastavitve) ..."
+        sudo mkdir -p "$(dirname "${OLLAMA_SYSTEMD_OVERRIDE}")"
+        echo "${OLLAMA_SYSTEMD_CONTENT}" | sudo tee "${OLLAMA_SYSTEMD_OVERRIDE}" > /dev/null
+        sudo systemctl daemon-reload
+        OLLAMA_NEEDS_RESTART=true
+        log_ok "Systemd override posodobljen"
+    else
+        log_ok "Systemd override ze pravilen"
+    fi
+
+    # Zazeni/restartaj Ollama servis
+    if [[ "${OLLAMA_NEEDS_RESTART}" == "true" ]] || ! systemctl is-active --quiet ollama 2>/dev/null; then
+        log_info "Zaganjam/restartiram Ollama servis ..."
+        sudo systemctl restart ollama
+        sleep 3
+    fi
+
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+        log_ok "Ollama servis tece"
+    else
+        log_warn "Ollama servis ni aktiven po restartu — poskusam rocni zagon"
+    fi
+fi
+
+# --- 6d. Ce Ollama ne tece (ni systemd ali servis ni uspel), zazeni rocno ---
+OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
+
+if [[ "${OLLAMA_HTTP_CODE}" != "200" ]]; then
+    log_info "Ollama ni dosegljiva na ${OLLAMA_CHECK_URL} — zaganjam v ozadju ..."
+
+    # Ustavi morebitni obstojechi Ollama proces ki poslusa na napacnem naslovu
+    if pgrep -x ollama &>/dev/null; then
+        log_info "Ustavljam obstojechi Ollama proces ..."
+        pkill -x ollama 2>/dev/null || sudo pkill -x ollama 2>/dev/null || true
+        sleep 2
+    fi
+
+    # Zazeni Ollama z vsemi env vars (host + GPU)
+    # shellcheck disable=SC2086
+    env ${OLLAMA_ENV_VARS} nohup ollama serve >> "${SCRIPT_DIR}/ollama.log" 2>&1 &
+    OLLAMA_PID=$!
+    log_info "Ollama zagnana v ozadju (PID: ${OLLAMA_PID}, log: ${SCRIPT_DIR}/ollama.log)"
+
+    # Pocakaj da se Ollama zazene (do 30s)
+    OLLAMA_WAIT=0
+    OLLAMA_WAIT_MAX=30
+    while (( OLLAMA_WAIT < OLLAMA_WAIT_MAX )); do
+        OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
+        if [[ "${OLLAMA_HTTP_CODE}" == "200" ]]; then
+            break
+        fi
+        sleep 2
+        OLLAMA_WAIT=$(( OLLAMA_WAIT + 2 ))
+    done
+fi
+
+# --- 6d. Preveri Ollama dosegljivost ---
 OLLAMA_REACHABLE=false
 OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
 
 if [[ "${OLLAMA_HTTP_CODE}" == "200" ]]; then
-    # Ollama vraca 200 na root — preverimo se /api/tags
     OLLAMA_TAGS_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null || echo '000')"
     if [[ "${OLLAMA_TAGS_CODE}" == "200" ]]; then
         OLLAMA_REACHABLE=true
-        log_ok "Ollama dosegljiv na ${OLLAMA_CHECK_URL}"
-
-        # Preveri ali je qwen3-coder:30b model prisoten
-        MODEL_NAME="${LLM_MODEL:-ollama/qwen3-coder:30b}"
-        # Odstrani "ollama/" prefix za iskanje
-        MODEL_SHORT="$(echo "${MODEL_NAME}" | sed 's|^ollama/||')"
-        if curl -sf "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null | grep -qi "${MODEL_SHORT}"; then
-            log_ok "Model '${MODEL_SHORT}' je prisoten v Ollama"
-        else
-            log_warn "Model '${MODEL_SHORT}' NI najden v Ollama. Prenesi ga z: ollama pull ${MODEL_SHORT}"
-            log_warn "Agent ne bo deloval dokler model ni prisoten!"
-        fi
+        log_ok "Ollama dosegljiva na ${OLLAMA_CHECK_URL}"
     fi
 fi
 
 if [[ "${OLLAMA_REACHABLE}" == "false" ]]; then
-    if [[ "${OLLAMA_HTTP_CODE}" == "000" ]]; then
-        log_warn "Ollama NI dosegljiv (connection refused / DNS fail / timeout) na ${OLLAMA_CHECK_URL}"
+    log_error "Ollama NI dosegljiva na ${OLLAMA_CHECK_URL} po vseh poskusih zagona."
+    log_error "Preveri: journalctl -u ollama --no-pager -n 30  ali  cat ${SCRIPT_DIR}/ollama.log"
+    fail "Ollama je potrebna za delovanje OpenHands. Brez nje agent ne more generirati odgovorov."
+fi
+
+# --- 6e. Preveri ali Ollama poslusa na 0.0.0.0 (da jo Docker kontejnerji dosezejo) ---
+if command -v ss &>/dev/null; then
+    if ss -tln 2>/dev/null | grep -q "127\.0\.0\.1:${OLLAMA_PORT}" && ! ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+        log_warn "Ollama poslusa samo na 127.0.0.1 — Docker kontejnerji je ne bodo dosegli."
+        log_info "Poskusam restartirati Ollamo na 0.0.0.0 ..."
+
+        pkill -x ollama 2>/dev/null || sudo pkill -x ollama 2>/dev/null || true
+        sleep 2
+        # shellcheck disable=SC2086
+        env ${OLLAMA_ENV_VARS} nohup ollama serve >> "${SCRIPT_DIR}/ollama.log" 2>&1 &
+        sleep 3
+
+        if ss -tln 2>/dev/null | grep -q "0\.0\.0\.0:${OLLAMA_PORT}"; then
+            log_ok "Ollama zdaj poslusa na 0.0.0.0:${OLLAMA_PORT}"
+        else
+            log_error "Ollama se vedno ne poslusa na 0.0.0.0:${OLLAMA_PORT}."
+            log_error "Rocno zazeni: OLLAMA_HOST=0.0.0.0:${OLLAMA_PORT} ollama serve"
+            fail "Docker kontejnerji ne morejo doseci Ollame. UI bo javil napako."
+        fi
     else
-        log_warn "Ollama vrnil nepricakovan HTTP ${OLLAMA_HTTP_CODE} na ${OLLAMA_CHECK_URL}"
+        log_ok "Ollama poslusa na 0.0.0.0:${OLLAMA_PORT} (Docker kontejnerji jo dosezejo)"
     fi
-    log_warn "Zazeni Ollama z: ollama serve"
-    log_warn "OpenHands bo zagnan, a agent ne bo mogel generirati odgovorov brez LLM!"
+fi
+
+# --- 6f. Avtomatski prenos modela ce manjka ---
+MODEL_NAME="${LLM_MODEL:-ollama/qwen3-coder:30b}"
+MODEL_SHORT="$(echo "${MODEL_NAME}" | sed 's|^ollama/||')"
+
+if curl -sf "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null | jq -r '.models[].name' 2>/dev/null | grep -qi "${MODEL_SHORT}"; then
+    log_ok "Model '${MODEL_SHORT}' je ze prisoten v Ollama"
+else
+    log_info "Model '${MODEL_SHORT}' ni prisoten — prenasam (to lahko traja nekaj minut) ..."
+    if ollama pull "${MODEL_SHORT}" 2>&1 | tee -a "${LOG_FILE}"; then
+        log_ok "Model '${MODEL_SHORT}' uspesno prenesen"
+    else
+        log_error "Prenos modela '${MODEL_SHORT}' ni uspel."
+        fail "Model je potreben za delovanje agenta. Preveri internetno povezavo in poskusi znova."
+    fi
 fi
 
 # ============================================
 # 7. DOCKER IMAGE-JI
 # ============================================
-log_step "7/10 — Prenasanje Docker image-jev"
+log_step "7/10 — Docker image-ji"
 
 OPENHANDS_APP_IMAGE="docker.openhands.dev/openhands/openhands:0.62"
 # Runtime image je opcijski: ce tag ni objavljen ali ni kompatibilen, OpenHands runtime lahko zgradi sam.
 OPENHANDS_RUNTIME_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
+RUNTIME_PULLED=false
 
-log_info "Prenasam: ${OPENHANDS_APP_IMAGE}"
-if ! docker pull "${OPENHANDS_APP_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
-    fail "Docker pull neuspesen za app image: ${OPENHANDS_APP_IMAGE}"
+# --- Pametna logika: preskoci pull ce image ze obstaja lokalno ---
+APP_IMAGE_EXISTS=false
+RUNTIME_IMAGE_EXISTS=false
+
+if docker image inspect "${OPENHANDS_APP_IMAGE}" &>/dev/null; then
+    APP_IMAGE_EXISTS=true
 fi
 
-RUNTIME_PULLED=false
-if [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]]; then
-    log_info "Preverjam obstoj runtime image (manifest): ${OPENHANDS_RUNTIME_IMAGE}"
-    if docker manifest inspect "${OPENHANDS_RUNTIME_IMAGE}" &>/dev/null; then
-        log_info "Prenasam: ${OPENHANDS_RUNTIME_IMAGE}"
-        if docker pull "${OPENHANDS_RUNTIME_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
-            RUNTIME_PULLED=true
-        else
-            log_warn "Docker pull neuspesen za runtime image: ${OPENHANDS_RUNTIME_IMAGE}"
-            log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
-            log_warn "Ce agent generira akcije, ki se ne izvedejo: najprej preveri runtime image + handshake (RUNTIME_EXECUTOR.md)."
-        fi
+if [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]] && docker image inspect "${OPENHANDS_RUNTIME_IMAGE}" &>/dev/null; then
+    RUNTIME_IMAGE_EXISTS=true
+fi
+
+SKIP_PULL=false
+if [[ "${MODE}" == "restart" ]]; then
+    # Restart nacin: vedno preskoci pull
+    if [[ "${APP_IMAGE_EXISTS}" == "true" ]]; then
+        SKIP_PULL=true
+        log_info "Restart nacin: app image ze obstaja lokalno, preskakujem pull"
     else
-        log_warn "Runtime image tag ni na voljo v registry: ${OPENHANDS_RUNTIME_IMAGE}"
-        log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
-        OPENHANDS_RUNTIME_IMAGE=""
+        log_warn "Restart nacin, a app image ne obstaja lokalno — moram narediti pull"
+    fi
+elif [[ "${MODE}" == "smart" ]]; then
+    # Smart nacin: preskoci pull ce image ze obstaja
+    if [[ "${APP_IMAGE_EXISTS}" == "true" ]]; then
+        SKIP_PULL=true
+        log_info "App image ze obstaja lokalno — preskakujem pull (uporabi --full za prisilen pull)"
     fi
 else
-    log_info "SANDBOX_RUNTIME_CONTAINER_IMAGE ni nastavljen — runtime bo zgrajen iz uradnega Dockerfile (reproducible)"
+    # Full nacin: vedno naredi pull
+    log_info "Full nacin: prisilen docker pull"
+fi
+
+if [[ "${SKIP_PULL}" == "false" ]]; then
+    log_info "Prenasam: ${OPENHANDS_APP_IMAGE}"
+    if ! docker pull "${OPENHANDS_APP_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
+        fail "Docker pull neuspesen za app image: ${OPENHANDS_APP_IMAGE}"
+    fi
+
+    if [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]]; then
+        log_info "Preverjam obstoj runtime image (manifest): ${OPENHANDS_RUNTIME_IMAGE}"
+        if docker manifest inspect "${OPENHANDS_RUNTIME_IMAGE}" &>/dev/null; then
+            log_info "Prenasam: ${OPENHANDS_RUNTIME_IMAGE}"
+            if docker pull "${OPENHANDS_RUNTIME_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
+                RUNTIME_PULLED=true
+            else
+                log_warn "Docker pull neuspesen za runtime image: ${OPENHANDS_RUNTIME_IMAGE}"
+                log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
+                log_warn "Ce agent generira akcije, ki se ne izvedejo: najprej preveri runtime image + handshake (RUNTIME_EXECUTOR.md)."
+            fi
+        else
+            log_warn "Runtime image tag ni na voljo v registry: ${OPENHANDS_RUNTIME_IMAGE}"
+            log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
+            OPENHANDS_RUNTIME_IMAGE=""
+        fi
+    else
+        log_info "SANDBOX_RUNTIME_CONTAINER_IMAGE ni nastavljen — runtime bo zgrajen iz uradnega Dockerfile (reproducible)"
+    fi
+else
+    log_ok "Docker pull preskocen (image-ji ze obstajajo lokalno)"
+    if [[ "${RUNTIME_IMAGE_EXISTS}" == "true" ]]; then
+        RUNTIME_PULLED=true
+    fi
 fi
 
 # Zabelezi digest-e
-APP_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_APP_IMAGE}" 2>/dev/null || echo 'ni-dosegljiv')"
+APP_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_APP_IMAGE}" 2>/dev/null || echo 'lokalni-image')"
 RUNTIME_DIGEST="ni-dosegljiv"
 if [[ "${RUNTIME_PULLED}" == "true" ]] && [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]]; then
-    RUNTIME_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_RUNTIME_IMAGE}" 2>/dev/null || echo 'ni-dosegljiv')"
+    RUNTIME_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_RUNTIME_IMAGE}" 2>/dev/null || echo 'lokalni-image')"
 fi
 
-log_ok "Image-ji prenaseni:"
+log_ok "Image-ji pripravljeni:"
 log_info "  App:     ${APP_DIGEST}"
 log_info "  Runtime: ${RUNTIME_DIGEST}"
 
@@ -523,8 +880,12 @@ log_step "8/10 — Zagon Docker Compose stack-a"
 
 cd "${SCRIPT_DIR}"
 
-# Ustavi obstoječ stack (če teče)
-${COMPOSE_CMD} down --remove-orphans 2>/dev/null || true
+# Preveri ali obstaja star named volume (openbuild-openhands-state) in opozori uporabnika
+if docker volume inspect openbuild-openhands-state &>/dev/null 2>&1; then
+    log_warn "Zaznan star named volume 'openbuild-openhands-state' iz prejsnje verzije."
+    log_warn "Nova verzija uporablja host bind mount (${OPENHANDS_STATE_DIR}) namesto named volume."
+    log_warn "Stari volume lahko odstranis z: docker volume rm openbuild-openhands-state"
+fi
 
 # Sestavi compose ukaz
 COMPOSE_FILES="-f docker-compose.yml"
@@ -534,10 +895,19 @@ if [[ "${GPU_AVAILABLE}" == "true" ]]; then
     log_info "GPU override aktiviran"
 fi
 
-# Zaženi
-log_info "Zaganjam servise ..."
-# shellcheck disable=SC2086
-${COMPOSE_CMD} ${COMPOSE_FILES} up -d
+# --- Restart / full logika ---
+if [[ "${MODE}" == "full" ]]; then
+    # Full: ustavi in ponovno zgradi/zazeni
+    ${COMPOSE_CMD} down --remove-orphans 2>/dev/null || true
+    log_info "Full nacin: zaganjam servise (down + up -d) ..."
+    # shellcheck disable=SC2086
+    ${COMPOSE_CMD} ${COMPOSE_FILES} up -d
+else
+    # Smart/Restart: brez down — samo up -d (idempotent)
+    log_info "${MODE} nacin: zaganjam/posodabljam servise (up -d brez down) ..."
+    # shellcheck disable=SC2086
+    ${COMPOSE_CMD} ${COMPOSE_FILES} up -d
+fi
 
 # Cakaj na healthcheck
 log_info "Cakam na healthcheck (do 120s) ..."
@@ -659,57 +1029,61 @@ else
 fi
 
 # --- 6. Pravi execution smoke test (API -> sandbox) ---
-log_info "Execution smoke test: ustvarjam novo conversation prek API ..."
-SMOKE_API_BASE="http://localhost:${OPENHANDS_PORT:-3000}"
-SMOKE_CONV_RESP="$(curl -sf -H 'Content-Type: application/json' -d '{"initial_user_msg":"SMOKE_TEST: samo izvedi ukaz: echo SMOKE_OK"}' "${SMOKE_API_BASE}/api/conversations" 2>/dev/null || true)"
-SMOKE_CONV_ID="$(echo "${SMOKE_CONV_RESP}" | jq -r '.conversation_id // empty' 2>/dev/null || true)"
-
-if [[ -z "${SMOKE_CONV_ID}" ]]; then
-    log_warn "Smoke test ni uspel ustvariti conversation prek API. Odgovor: ${SMOKE_CONV_RESP:-<prazen>}"
-    log_warn "To lahko pomeni: settings.json manjka ali je neveljaven, ali pa API zahteva dodatno avtentikacijo."
+if [[ "${MODE}" == "restart" ]]; then
+    log_info "Restart nacin: preskakujem execution smoke test (conversation + runtime_id)"
 else
-    log_ok "Conversation ustvarjen: ${SMOKE_CONV_ID}"
+    log_info "Execution smoke test: ustvarjam novo conversation prek API ..."
+    SMOKE_API_BASE="http://localhost:${OPENHANDS_PORT:-3000}"
+    SMOKE_CONV_RESP="$(curl -sf -H 'Content-Type: application/json' -d '{"initial_user_msg":"SMOKE_TEST: samo izvedi ukaz: echo SMOKE_OK"}' "${SMOKE_API_BASE}/api/conversations" 2>/dev/null || true)"
+    SMOKE_CONV_ID="$(echo "${SMOKE_CONV_RESP}" | jq -r '.conversation_id // empty' 2>/dev/null || true)"
 
-    # Pocakaj, da runtime (sandbox) vrne runtime_id prek /config
-    SMOKE_TIMEOUT=180
-    SMOKE_ELAPSED=0
-    SMOKE_INTERVAL=5
-    SMOKE_RUNTIME_ID=""
-
-    while (( SMOKE_ELAPSED < SMOKE_TIMEOUT )); do
-        SMOKE_CFG_JSON="$(curl -sf "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/config" 2>/dev/null || true)"
-        SMOKE_RUNTIME_ID="$(echo "${SMOKE_CFG_JSON}" | jq -r '.runtime_id // empty' 2>/dev/null || true)"
-
-        if [[ -n "${SMOKE_RUNTIME_ID}" ]] && [[ "${SMOKE_RUNTIME_ID}" != "null" ]]; then
-            break
-        fi
-
-        sleep "${SMOKE_INTERVAL}"
-        SMOKE_ELAPSED=$(( SMOKE_ELAPSED + SMOKE_INTERVAL ))
-    done
-
-    if [[ -z "${SMOKE_RUNTIME_ID}" ]] || [[ "${SMOKE_RUNTIME_ID}" == "null" ]]; then
-        log_error "Sandbox runtime se ni inicializiral v ${SMOKE_TIMEOUT}s (runtime_id je prazen)"
-        log_error "To je tipicen 'pseudo-planning' failure mode: agent generira akcije, a runtime API handshake ne uspe."
-        ${COMPOSE_CMD} ${COMPOSE_FILES} logs --tail=120 openhands 2>&1 | tee -a "${LOG_FILE}"
-        fail "Execution smoke test ni uspel."
-    fi
-
-    log_ok "Sandbox runtime READY: ${SMOKE_RUNTIME_ID}"
-
-    # Preveri da sandbox container obstaja
-    if docker ps --format '{{.Names}}' | grep -q "^${SMOKE_RUNTIME_ID}$"; then
-        log_ok "Sandbox container tece: ${SMOKE_RUNTIME_ID}"
+    if [[ -z "${SMOKE_CONV_ID}" ]]; then
+        log_warn "Smoke test ni uspel ustvariti conversation prek API. Odgovor: ${SMOKE_CONV_RESP:-<prazen>}"
+        log_warn "To lahko pomeni: settings.json manjka ali je neveljaven, ali pa API zahteva dodatno avtentikacijo."
     else
-        if docker ps --format '{{.Names}}' | grep -q '^oh-agent-server-'; then
-            log_ok "Sandbox container(ji) zaznani (oh-agent-server-*)"
-        else
-            log_warn "Ne vidim oh-agent-server container-ja v 'docker ps' — lahko je ugasnjen/paused ali pa runtime uporablja drug nacin."
-        fi
-    fi
+        log_ok "Conversation ustvarjen: ${SMOKE_CONV_ID}"
 
-    # Cleanup: ustavi conversation
-    curl -sf -X POST "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/stop" 2>/dev/null || true
+        # Pocakaj, da runtime (sandbox) vrne runtime_id prek /config
+        SMOKE_TIMEOUT=180
+        SMOKE_ELAPSED=0
+        SMOKE_INTERVAL=5
+        SMOKE_RUNTIME_ID=""
+
+        while (( SMOKE_ELAPSED < SMOKE_TIMEOUT )); do
+            SMOKE_CFG_JSON="$(curl -sf "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/config" 2>/dev/null || true)"
+            SMOKE_RUNTIME_ID="$(echo "${SMOKE_CFG_JSON}" | jq -r '.runtime_id // empty' 2>/dev/null || true)"
+
+            if [[ -n "${SMOKE_RUNTIME_ID}" ]] && [[ "${SMOKE_RUNTIME_ID}" != "null" ]]; then
+                break
+            fi
+
+            sleep "${SMOKE_INTERVAL}"
+            SMOKE_ELAPSED=$(( SMOKE_ELAPSED + SMOKE_INTERVAL ))
+        done
+
+        if [[ -z "${SMOKE_RUNTIME_ID}" ]] || [[ "${SMOKE_RUNTIME_ID}" == "null" ]]; then
+            log_error "Sandbox runtime se ni inicializiral v ${SMOKE_TIMEOUT}s (runtime_id je prazen)"
+            log_error "To je tipicen 'pseudo-planning' failure mode: agent generira akcije, a runtime API handshake ne uspe."
+            ${COMPOSE_CMD} ${COMPOSE_FILES} logs --tail=120 openhands 2>&1 | tee -a "${LOG_FILE}"
+            fail "Execution smoke test ni uspel."
+        fi
+
+        log_ok "Sandbox runtime READY: ${SMOKE_RUNTIME_ID}"
+
+        # Preveri da sandbox container obstaja
+        if docker ps --format '{{.Names}}' | grep -q "^${SMOKE_RUNTIME_ID}$"; then
+            log_ok "Sandbox container tece: ${SMOKE_RUNTIME_ID}"
+        else
+            if docker ps --format '{{.Names}}' | grep -q '^oh-agent-server-'; then
+                log_ok "Sandbox container(ji) zaznani (oh-agent-server-*)"
+            else
+                log_warn "Ne vidim oh-agent-server container-ja v 'docker ps' — lahko je ugasnjen/paused ali pa runtime uporablja drug nacin."
+            fi
+        fi
+
+        # Cleanup: ustavi conversation
+        curl -sf -X POST "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/stop" 2>/dev/null || true
+    fi
 fi
 
 # --- 7. Diagnostika execution state-a ---
@@ -740,17 +1114,24 @@ echo -e "${GREEN}  SISTEM JE PRIPRAVLJEN${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "  ${CYAN}UI:${NC}          http://localhost:${OPENHANDS_PORT:-3000}"
-echo -e "  ${CYAN}LLM:${NC}         Qwen3-Coder:30B (Ollama)"
-echo -e "  ${CYAN}Ollama:${NC}      ${OLLAMA_CHECK_URL}"
-echo -e "  ${CYAN}GPU:${NC}         ${GPU_AVAILABLE} (${GPU_TYPE})"
+echo -e "  ${CYAN}LLM:${NC}         ${MODEL_NAME} (Ollama)"
+echo -e "  ${CYAN}Ollama:${NC}      ${OLLAMA_CHECK_URL} (bind: ${OLLAMA_BIND})"
+echo -e "  ${CYAN}GPU (Docker):${NC} ${GPU_AVAILABLE} (${GPU_TYPE})"
+if (( OLLAMA_GPU_COUNT > 1 )); then
+echo -e "  ${CYAN}GPU (Ollama):${NC} ${OLLAMA_GPU_COUNT} GPU-jev — tensor parallel (SCHED_SPREAD=true)"
+elif (( OLLAMA_GPU_COUNT == 1 )); then
+echo -e "  ${CYAN}GPU (Ollama):${NC} 1 GPU (FLASH_ATTENTION=1)"
+else
+echo -e "  ${CYAN}GPU (Ollama):${NC} CPU nacin"
+fi
 echo -e "  ${CYAN}Workspace:${NC}   ${WORKSPACE_DIR}"
+echo -e "  ${CYAN}State:${NC}       ${OPENHANDS_STATE_DIR}"
 echo -e "  ${CYAN}Config:${NC}      ${CONFIG_FILE}"
+echo -e "  ${CYAN}Settings:${NC}    ${SETTINGS_FILE}"
 echo ""
-echo -e "  ${YELLOW}Naslednji koraki:${NC}"
-echo -e "    1. Preveri da Ollama tece: ollama serve"
-echo -e "    2. Preveri da model obstaja: ollama pull qwen3-coder:30b"
-echo -e "    3. Odpri http://localhost:${OPENHANDS_PORT:-3000} v brskalniku"
-echo -e "    4. Zacni nov pogovor z agentom"
+echo -e "  ${YELLOW}Naslednji korak:${NC}"
+echo -e "    Odpri http://localhost:${OPENHANDS_PORT:-3000} v brskalniku in zacni pogovor."
+echo -e "    Vse ostalo je ze nastavljeno avtomatsko."
 echo ""
 echo -e "  ${YELLOW}Zmoznosti agenta (vse konfigurirane):${NC}"
 echo -e "    - Shell/Bash izvrsevanje ukazov (enable_cmd=true)"

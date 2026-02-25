@@ -18,12 +18,15 @@ services:
       # --- Runtime / Sandbox ---
       - SANDBOX_RUNTIME_CONTAINER_IMAGE=${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}
       - WORKSPACE_MOUNT_PATH=${WORKSPACE_BASE:-./workspace}
-      - SANDBOX_USER_ID=${SANDBOX_USER_ID:-}
+      - SANDBOX_USER_ID=${SANDBOX_USER_ID:-1000}
       - SANDBOX_VOLUMES=${SANDBOX_VOLUMES:-}
       # --- LLM (Qwen3-Coder:30B prek Ollama) ---
       - LLM_API_KEY=${LLM_API_KEY:-local-key}
       - LLM_MODEL=${LLM_MODEL:-ollama/qwen3-coder:30b}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434}
+      # KRITICNO: native tool calling MORA biti true za Ollama/Qwen3 modele
+      # Brez tega model halucinira tool imena in execution ne deluje
+      - LLM_NATIVE_TOOL_CALLING=true
       # --- Logiranje ---
       - LOG_ALL_EVENTS=${LOG_ALL_EVENTS:-true}
       # --- Varnost ---
@@ -41,8 +44,10 @@ services:
       # Docker socket — omogoca OpenHands ustvarjanje in upravljanje sandbox kontejnerjev
       # Brez tega agent NE MORE izvrsevati ukazov ali zaganjati projektov
       - /var/run/docker.sock:/var/run/docker.sock
-      # Stanje OpenHands (pogovori, nastavitve, config.toml)
-      - openhands-state:/.openhands
+      # Stanje OpenHands (pogovori, nastavitve, settings.json)
+      # POMEMBNO: host bind mount (ne named volume!) — sicer kontejner ne more pisati settings.json
+      # Uradni OpenHands pristop: docker run -v ~/.openhands:/.openhands
+      - ${OPENHANDS_STATE_DIR:-./.openhands-state}:/.openhands
       # Workspace za agenta (zapisljiv, deljeno z gostiteljem)
       - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
       # Konfiguracija — config.toml z eksplicitnimi nastavitvami orodij in pravic
@@ -72,6 +77,5 @@ networks:
     name: openbuild-net
     driver: bridge
 
-volumes:
-  openhands-state:
-    name: openbuild-openhands-state
+# Brez named volumes — /.openhands je host bind mount (OPENHANDS_STATE_DIR)
+# volumes:

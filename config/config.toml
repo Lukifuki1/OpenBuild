@@ -40,6 +40,13 @@ model = "ollama/qwen3-coder:30b"
 api_key = "local-key"
 base_url = "http://host.docker.internal:11434"
 
+# KRITICNO: native_tool_calling MORA biti true za Ollama/Qwen3 modele!
+# Brez tega OpenHands NE posreduje orodij (execute_bash, str_replace_editor, ...)
+# modelu v native function calling formatu. Model potem halucinira imena orodij
+# (npr. 'execute_task' namesto 'execute_bash') in execution ne deluje.
+# Ref: https://github.com/OpenHands/OpenHands/issues/8140
+native_tool_calling = true
+
 # Ollama-specificne nastavitve
 temperature = 0.0
 num_retries = 8
