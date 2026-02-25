@@ -18,7 +18,7 @@ services:
       # --- Runtime / Sandbox ---
       - SANDBOX_RUNTIME_CONTAINER_IMAGE=${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}
       - WORKSPACE_MOUNT_PATH=${WORKSPACE_BASE:-./workspace}
-      - SANDBOX_USER_ID=${SANDBOX_USER_ID:-}
+      - SANDBOX_USER_ID=${SANDBOX_USER_ID:-1000}
       - SANDBOX_VOLUMES=${SANDBOX_VOLUMES:-}
       # --- LLM (Qwen3-Coder:30B prek Ollama) ---
       - LLM_API_KEY=${LLM_API_KEY:-local-key}
