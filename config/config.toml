@@ -2,7 +2,9 @@
 # OpenBuild — OpenHands v0.62.0 Konfiguracija
 ################################################################################
 # Ta datoteka eksplicitno nastavi vse parametre za runtime, orodja in pravice.
-# OpenHands jo prebere ob zagonu iz /.openhands/config.toml (mount v kontejner).
+# OpenHands jo prebere ob zagonu iz /app/config.toml (mount v kontejner).
+# POZOR: mount MORA biti na /app/config.toml, NE na /.openhands/config.toml!
+# OpenHands isce config.toml relativno na CWD (/app).
 ################################################################################
 
 #################################### Core ####################################
@@ -40,12 +42,23 @@ model = "ollama/qwen3-coder:30b"
 api_key = "local-key"
 base_url = "http://host.docker.internal:11434"
 
-# KRITICNO: native_tool_calling MORA biti true za Ollama/Qwen3 modele!
-# Brez tega OpenHands NE posreduje orodij (execute_bash, str_replace_editor, ...)
-# modelu v native function calling formatu. Model potem halucinira imena orodij
-# (npr. 'execute_task' namesto 'execute_bash') in execution ne deluje.
-# Ref: https://github.com/OpenHands/OpenHands/issues/8140
-native_tool_calling = true
+# KRITICNO: native_tool_calling MORA biti false za Ollama modele!
+#
+# Zakaj? OpenHands 0.62 ima qwen3-coder v FUNCTION_CALLING_PATTERNS seznamu
+# (model_features.py), kar pomeni da privzeto poslje tools v native formatu
+# prek Ollama API. Toda Ollama NE podpira native tool calling pravilno:
+#   1. Model halucinira tool imena (npr. 'execute_task' namesto 'execute_bash')
+#   2. Ollama API vrne 'Operation not allowed' napako
+#
+# Z native_tool_calling=false OpenHands uporabi "mock" function calling
+# (fn_call_converter.py):
+#   - Orodja so opisana v system promptu kot tekst
+#   - Model vrne tekst v specificnem formatu: <function=tool_name>...</function>
+#   - OpenHands pretvori tekst nazaj v function call format
+#
+# To je preverjen pristop za vse Ollama modele.
+# Ref: OpenHands llm/fn_call_converter.py, llm/model_features.py
+native_tool_calling = false
 
 # Ollama-specificne nastavitve
 temperature = 0.0

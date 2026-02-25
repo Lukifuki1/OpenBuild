@@ -24,9 +24,16 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-local-key}
       - LLM_MODEL=${LLM_MODEL:-ollama/qwen3-coder:30b}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434}
-      # KRITICNO: native tool calling MORA biti true za Ollama/Qwen3 modele
-      # Brez tega model halucinira tool imena in execution ne deluje
-      - LLM_NATIVE_TOOL_CALLING=true
+      # KRITICNO: native_tool_calling MORA biti false za Ollama modele!
+      # OpenHands 0.62 ima qwen3-coder v FUNCTION_CALLING_PATTERNS seznamu,
+      # kar pomeni da privzeto poslje tools v native formatu prek Ollama API.
+      # Ollama pa NE podpira native tool calling pravilno — model halucinira
+      # tool imena (npr. 'execute_task' namesto 'execute_bash') in Ollama API
+      # vrne 'Operation not allowed' napako.
+      # Z native_tool_calling=false OpenHands uporabi "mock" function calling:
+      # orodja opisana v system promptu kot tekst, model vrne tekst,
+      # OpenHands fn_call_converter.py ga pretvori nazaj v function call format.
+      - LLM_NATIVE_TOOL_CALLING=false
       # --- Logiranje ---
       - LOG_ALL_EVENTS=${LOG_ALL_EVENTS:-true}
       # --- Varnost ---
@@ -50,8 +57,11 @@ services:
       - ${OPENHANDS_STATE_DIR:-./.openhands-state}:/.openhands
       # Workspace za agenta (zapisljiv, deljeno z gostiteljem)
       - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
-      # Konfiguracija — config.toml z eksplicitnimi nastavitvami orodij in pravic
-      - ./config/config.toml:/.openhands/config.toml:ro
+      # Konfiguracija — config.toml MORA biti mountan na /app/config.toml!
+      # OpenHands isce config.toml relativno na CWD (/app), NE na /.openhands/.
+      # Napacen mount (/.openhands/config.toml) povzroci: "config.toml not found"
+      # in vse nastavitve se ignorirajo.
+      - ./config/config.toml:/app/config.toml:ro
 
     networks:
       - openbuild-net

@@ -984,11 +984,12 @@ else
 fi
 
 # --- 2. Config montiran ---
-CONFIG_CHECK="$(docker exec "${OH_CONTAINER_ID}" test -f /.openhands/config.toml && echo 'ok' || echo 'fail')"
+CONFIG_CHECK="$(docker exec "${OH_CONTAINER_ID}" test -f /app/config.toml && echo 'ok' || echo 'fail')"
 if [[ "${CONFIG_CHECK}" == "ok" ]]; then
-    log_ok "config.toml je pravilno montiran v kontejner (/.openhands/config.toml)"
+    log_ok "config.toml je pravilno montiran v kontejner (/app/config.toml)"
 else
-    log_warn "config.toml NI najden v kontejnerju — orodja in pravice morda niso pravilno nastavljene"
+    log_warn "config.toml NI najden v kontejnerju na /app/config.toml — orodja in pravice morda niso pravilno nastavljene"
+    log_warn "OpenHands isce config.toml relativno na CWD (/app), NE na /.openhands/!"
 fi
 
 # --- 3. Workspace zapisljiv ---
