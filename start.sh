@@ -224,13 +224,19 @@ if command -v nvidia-smi &>/dev/null; then
             if dpkg -l nvidia-container-toolkit &>/dev/null 2>&1 || command -v nvidia-container-runtime &>/dev/null; then
                 log_ok "nvidia-container-toolkit je namescen"
 
-                # Preveri ali docker vidi GPU
-                if docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi &>/dev/null 2>&1; then
+                # Preveri ali docker vidi GPU (lahka preverba prek docker info)
+                if docker info 2>/dev/null | grep -qi 'nvidia'; then
                     GPU_AVAILABLE=true
-                    log_ok "Docker lahko dostopa do GPU"
+                    log_ok "Docker runtime podpira NVIDIA GPU"
                 else
-                    log_warn "Docker ne more dostopati do GPU. Preveri nvidia-container-toolkit konfiguracijo."
-                    log_warn "Nadaljujem v CPU nacinu."
+                    # Fallback: preveri nvidia runtime v docker config
+                    if docker info 2>/dev/null | grep -qi 'Runtimes.*nvidia'; then
+                        GPU_AVAILABLE=true
+                        log_ok "Docker nvidia runtime zaznan"
+                    else
+                        log_warn "Docker ne vidi NVIDIA runtime-a. Preveri nvidia-container-toolkit konfiguracijo."
+                        log_warn "Nadaljujem v CPU nacinu."
+                    fi
                 fi
             else
                 log_warn "nvidia-container-toolkit ni namescen. Nadaljujem v CPU nacinu."
@@ -314,6 +320,27 @@ chmod 755 "${SCRIPT_DIR}/data"
 # Ustvari ~/.openhands ce ne obstaja (za lokalno stanje)
 mkdir -p "${HOME}/.openhands"
 chmod 755 "${HOME}/.openhands"
+
+# Generiraj privzeti settings.json, da API smoke test lahko ustvari conversation brez ročnega klikanja v UI
+SETTINGS_FILE="${HOME}/.openhands/settings.json"
+if [[ ! -f "${SETTINGS_FILE}" ]]; then
+    log_info "Generiram privzeti settings.json (LLM + confirmation_mode=false)"
+
+    SETTINGS_LLMMODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
+    SETTINGS_LLMBASE="${LLM_BASE_URL:-http://host.docker.internal:11434}"
+    SETTINGS_LLMKEY="${LLM_API_KEY:-local-key}"
+
+    cat > "${SETTINGS_FILE}" <<EOF
+{
+  "language": "sl",
+  "confirmation_mode": false,
+  "llm_model": "${SETTINGS_LLMMODEL}",
+  "llm_base_url": "${SETTINGS_LLMBASE}",
+  "llm_api_key": "${SETTINGS_LLMKEY}",
+  "sandbox_runtime_container_image": "${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
+}
+EOF
+fi
 
 log_ok "Direktoriji pripravljeni:"
 log_info "  Workspace: ${WORKSPACE_DIR} (lastnik: ${HOST_UID}:${HOST_GID})"
@@ -413,9 +440,8 @@ log_info "Preverjam Ollama na: ${OLLAMA_CHECK_URL}"
 OLLAMA_REACHABLE=false
 OLLAMA_HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}" 2>/dev/null || echo '000')"
 
-if [[ "${OLLAMA_HTTP_CODE}" == "200" ]] || [[ "${OLLAMA_HTTP_CODE}" == "000" ]]; then
-    # Ollama vraca 200 na root ali pa ni dosegljiv
-    # Preverimo se /api/tags
+if [[ "${OLLAMA_HTTP_CODE}" == "200" ]]; then
+    # Ollama vraca 200 na root — preverimo se /api/tags
     OLLAMA_TAGS_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null || echo '000')"
     if [[ "${OLLAMA_TAGS_CODE}" == "200" ]]; then
         OLLAMA_REACHABLE=true
@@ -435,8 +461,12 @@ if [[ "${OLLAMA_HTTP_CODE}" == "200" ]] || [[ "${OLLAMA_HTTP_CODE}" == "000" ]];
 fi
 
 if [[ "${OLLAMA_REACHABLE}" == "false" ]]; then
-    log_warn "Ollama NI dosegljiv na ${OLLAMA_CHECK_URL}"
-    log_warn "Zaženi Ollama z: ollama serve"
+    if [[ "${OLLAMA_HTTP_CODE}" == "000" ]]; then
+        log_warn "Ollama NI dosegljiv (connection refused / DNS fail / timeout) na ${OLLAMA_CHECK_URL}"
+    else
+        log_warn "Ollama vrnil nepricakovan HTTP ${OLLAMA_HTTP_CODE} na ${OLLAMA_CHECK_URL}"
+    fi
+    log_warn "Zazeni Ollama z: ollama serve"
     log_warn "OpenHands bo zagnan, a agent ne bo mogel generirati odgovorov brez LLM!"
 fi
 
@@ -446,17 +476,41 @@ fi
 log_step "7/10 — Prenasanje Docker image-jev"
 
 OPENHANDS_APP_IMAGE="docker.openhands.dev/openhands/openhands:0.62"
-OPENHANDS_RUNTIME_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}"
+# Runtime image je opcijski: ce tag ni objavljen ali ni kompatibilen, OpenHands runtime lahko zgradi sam.
+OPENHANDS_RUNTIME_IMAGE="${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
 
 log_info "Prenasam: ${OPENHANDS_APP_IMAGE}"
-docker pull "${OPENHANDS_APP_IMAGE}" 2>&1 | tail -1 | tee -a "${LOG_FILE}"
+if ! docker pull "${OPENHANDS_APP_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
+    fail "Docker pull neuspesen za app image: ${OPENHANDS_APP_IMAGE}"
+fi
 
-log_info "Prenasam: ${OPENHANDS_RUNTIME_IMAGE}"
-docker pull "${OPENHANDS_RUNTIME_IMAGE}" 2>&1 | tail -1 | tee -a "${LOG_FILE}"
+RUNTIME_PULLED=false
+if [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]]; then
+    log_info "Preverjam obstoj runtime image (manifest): ${OPENHANDS_RUNTIME_IMAGE}"
+    if docker manifest inspect "${OPENHANDS_RUNTIME_IMAGE}" &>/dev/null; then
+        log_info "Prenasam: ${OPENHANDS_RUNTIME_IMAGE}"
+        if docker pull "${OPENHANDS_RUNTIME_IMAGE}" 2>&1 | tee -a "${LOG_FILE}"; then
+            RUNTIME_PULLED=true
+        else
+            log_warn "Docker pull neuspesen za runtime image: ${OPENHANDS_RUNTIME_IMAGE}"
+            log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
+            log_warn "Ce agent generira akcije, ki se ne izvedejo: najprej preveri runtime image + handshake (RUNTIME_EXECUTOR.md)."
+        fi
+    else
+        log_warn "Runtime image tag ni na voljo v registry: ${OPENHANDS_RUNTIME_IMAGE}"
+        log_warn "OpenHands bo runtime zgradil sam ob prvem zagonu (pocasneje)."
+        OPENHANDS_RUNTIME_IMAGE=""
+    fi
+else
+    log_info "SANDBOX_RUNTIME_CONTAINER_IMAGE ni nastavljen — runtime bo zgrajen iz uradnega Dockerfile (reproducible)"
+fi
 
 # Zabelezi digest-e
 APP_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_APP_IMAGE}" 2>/dev/null || echo 'ni-dosegljiv')"
-RUNTIME_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_RUNTIME_IMAGE}" 2>/dev/null || echo 'ni-dosegljiv')"
+RUNTIME_DIGEST="ni-dosegljiv"
+if [[ "${RUNTIME_PULLED}" == "true" ]] && [[ -n "${OPENHANDS_RUNTIME_IMAGE}" ]]; then
+    RUNTIME_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${OPENHANDS_RUNTIME_IMAGE}" 2>/dev/null || echo 'ni-dosegljiv')"
+fi
 
 log_ok "Image-ji prenaseni:"
 log_info "  App:     ${APP_DIGEST}"
@@ -491,8 +545,15 @@ TIMEOUT=120
 ELAPSED=0
 INTERVAL=5
 
+# Pridobi container ID prek compose (ne hardkodirano ime)
+OH_CONTAINER_ID="$(${COMPOSE_CMD} ${COMPOSE_FILES} ps -q openhands 2>/dev/null || echo '')" 
+if [[ -z "${OH_CONTAINER_ID}" ]]; then
+    fail "OpenHands kontejner se ni zagnal. Preveri: ${COMPOSE_CMD} ps"
+fi
+log_info "OpenHands container ID: ${OH_CONTAINER_ID:0:12}"
+
 while (( ELAPSED < TIMEOUT )); do
-    HEALTH="$(docker inspect --format='{{.State.Health.Status}}' openbuild-openhands 2>/dev/null || echo 'starting')"
+    HEALTH="$(docker inspect --format='{{.State.Health.Status}}' "${OH_CONTAINER_ID}" 2>/dev/null || echo 'starting')"
 
     if [[ "${HEALTH}" == "healthy" ]]; then
         break
@@ -541,28 +602,129 @@ fi
 # ============================================
 log_step "10/10 — Runtime executor validacija"
 
-# Preveri ali Docker socket deluje znotraj kontejnerja
-RUNTIME_CHECK="$(docker exec openbuild-openhands ls /var/run/docker.sock 2>/dev/null && echo 'ok' || echo 'fail')"
+# Uporabi container ID iz compose (ne hardkodirano ime)
+# OH_CONTAINER_ID je ze nastavljen iz healthcheck faze
+
+# --- 1. Docker socket ---
+RUNTIME_CHECK="$(docker exec "${OH_CONTAINER_ID}" ls /var/run/docker.sock 2>/dev/null && echo 'ok' || echo 'fail')"
 if echo "${RUNTIME_CHECK}" | grep -q 'ok'; then
     log_ok "Docker socket dosegljiv v kontejnerju (agent lahko ustvarja sandbox-e)"
 else
     log_warn "Docker socket NI dosegljiv v kontejnerju — sandbox-i ne bodo delovali"
 fi
 
-# Preveri ali je config.toml pravilno montiran
-CONFIG_CHECK="$(docker exec openbuild-openhands test -f /.openhands/config.toml && echo 'ok' || echo 'fail')"
+# --- 2. Config montiran ---
+CONFIG_CHECK="$(docker exec "${OH_CONTAINER_ID}" test -f /.openhands/config.toml && echo 'ok' || echo 'fail')"
 if [[ "${CONFIG_CHECK}" == "ok" ]]; then
     log_ok "config.toml je pravilno montiran v kontejner (/.openhands/config.toml)"
 else
     log_warn "config.toml NI najden v kontejnerju — orodja in pravice morda niso pravilno nastavljene"
 fi
 
-# Preveri ali workspace obstaja in je zapisljiv
-WS_CHECK="$(docker exec openbuild-openhands test -w /opt/workspace_base && echo 'ok' || echo 'fail')"
+# --- 3. Workspace zapisljiv ---
+WS_CHECK="$(docker exec "${OH_CONTAINER_ID}" test -w /opt/workspace_base && echo 'ok' || echo 'fail')"
 if [[ "${WS_CHECK}" == "ok" ]]; then
     log_ok "Workspace /opt/workspace_base je zapisljiv (agent lahko ureja datoteke)"
 else
     log_warn "Workspace NI zapisljiv — agent ne bo mogel ustvarjati datotek"
+fi
+
+# --- 4. Runtime image validacija ---
+# Preveri ali runtime image vsebuje OpenHands runtime API (ne samo nikolaik base)
+log_info "Preverjam runtime image za OpenHands runtime API ..."
+RT_IMG="${SANDBOX_RUNTIME_CONTAINER_IMAGE:-}"
+if [[ -n "${RT_IMG}" ]] && docker image inspect "${RT_IMG}" &>/dev/null; then
+    # Preveri ali image vsebuje /openhands ali /app (runtime server)
+    RT_HAS_RUNTIME="$(docker run --rm --entrypoint /bin/sh "${RT_IMG}" -lc 'test -d /openhands || test -d /app/openhands' 2>/dev/null && echo 'ok' || echo 'fail')"
+    if echo "${RT_HAS_RUNTIME}" | grep -q 'ok'; then
+        log_ok "Runtime image vsebuje OpenHands runtime API (/openhands)"
+    else
+        log_warn "Runtime image morda NIMA OpenHands runtime API."
+        log_warn "Ce agent generira akcije, ki se ne izvedejo: to je verjetno razlog."
+        log_warn "Glej RUNTIME_EXECUTOR.md > Troubleshooting > 'Runtime image brez API'"
+    fi
+else
+    log_warn "Runtime image '${RT_IMG}' ni lokalno — bo zgrajen ob prvi seji."
+fi
+
+# --- 5. Pravi smoke test: runtime API endpoint ---
+# OpenHands API ima /api/options endpoint ki potrdi da je app server pripravljen
+API_URL="http://localhost:${OPENHANDS_PORT:-3000}/api/options/config"
+API_CODE="$(curl -sf -o /dev/null -w '%{http_code}' "${API_URL}" 2>/dev/null || echo '000')"
+if [[ "${API_CODE}" == "200" ]]; then
+    log_ok "OpenHands API endpoint dosegljiv (HTTP ${API_CODE}) — app server je pripravljen"
+else
+    log_warn "OpenHands API endpoint ni vrnil 200 (HTTP ${API_CODE}) — app server morda se inicializira"
+    log_warn "Ce agent ne dela po zagonu, pocakaj 30s in preveri znova: curl ${API_URL}"
+fi
+
+# --- 6. Pravi execution smoke test (API -> sandbox) ---
+log_info "Execution smoke test: ustvarjam novo conversation prek API ..."
+SMOKE_API_BASE="http://localhost:${OPENHANDS_PORT:-3000}"
+SMOKE_CONV_RESP="$(curl -sf -H 'Content-Type: application/json' -d '{"initial_user_msg":"SMOKE_TEST: samo izvedi ukaz: echo SMOKE_OK"}' "${SMOKE_API_BASE}/api/conversations" 2>/dev/null || true)"
+SMOKE_CONV_ID="$(echo "${SMOKE_CONV_RESP}" | jq -r '.conversation_id // empty' 2>/dev/null || true)"
+
+if [[ -z "${SMOKE_CONV_ID}" ]]; then
+    log_warn "Smoke test ni uspel ustvariti conversation prek API. Odgovor: ${SMOKE_CONV_RESP:-<prazen>}"
+    log_warn "To lahko pomeni: settings.json manjka ali je neveljaven, ali pa API zahteva dodatno avtentikacijo."
+else
+    log_ok "Conversation ustvarjen: ${SMOKE_CONV_ID}"
+
+    # Pocakaj, da runtime (sandbox) vrne runtime_id prek /config
+    SMOKE_TIMEOUT=180
+    SMOKE_ELAPSED=0
+    SMOKE_INTERVAL=5
+    SMOKE_RUNTIME_ID=""
+
+    while (( SMOKE_ELAPSED < SMOKE_TIMEOUT )); do
+        SMOKE_CFG_JSON="$(curl -sf "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/config" 2>/dev/null || true)"
+        SMOKE_RUNTIME_ID="$(echo "${SMOKE_CFG_JSON}" | jq -r '.runtime_id // empty' 2>/dev/null || true)"
+
+        if [[ -n "${SMOKE_RUNTIME_ID}" ]] && [[ "${SMOKE_RUNTIME_ID}" != "null" ]]; then
+            break
+        fi
+
+        sleep "${SMOKE_INTERVAL}"
+        SMOKE_ELAPSED=$(( SMOKE_ELAPSED + SMOKE_INTERVAL ))
+    done
+
+    if [[ -z "${SMOKE_RUNTIME_ID}" ]] || [[ "${SMOKE_RUNTIME_ID}" == "null" ]]; then
+        log_error "Sandbox runtime se ni inicializiral v ${SMOKE_TIMEOUT}s (runtime_id je prazen)"
+        log_error "To je tipicen 'pseudo-planning' failure mode: agent generira akcije, a runtime API handshake ne uspe."
+        ${COMPOSE_CMD} ${COMPOSE_FILES} logs --tail=120 openhands 2>&1 | tee -a "${LOG_FILE}"
+        fail "Execution smoke test ni uspel."
+    fi
+
+    log_ok "Sandbox runtime READY: ${SMOKE_RUNTIME_ID}"
+
+    # Preveri da sandbox container obstaja
+    if docker ps --format '{{.Names}}' | grep -q "^${SMOKE_RUNTIME_ID}$"; then
+        log_ok "Sandbox container tece: ${SMOKE_RUNTIME_ID}"
+    else
+        if docker ps --format '{{.Names}}' | grep -q '^oh-agent-server-'; then
+            log_ok "Sandbox container(ji) zaznani (oh-agent-server-*)"
+        else
+            log_warn "Ne vidim oh-agent-server container-ja v 'docker ps' — lahko je ugasnjen/paused ali pa runtime uporablja drug nacin."
+        fi
+    fi
+
+    # Cleanup: ustavi conversation
+    curl -sf -X POST "${SMOKE_API_BASE}/api/conversations/${SMOKE_CONV_ID}/stop" 2>/dev/null || true
+fi
+
+# --- 7. Diagnostika execution state-a ---
+log_info "Diagnostika execution state:"
+log_info "  Docker socket v kontejnerju:  $(echo "${RUNTIME_CHECK}" | tail -1)"
+log_info "  Config montiran:              ${CONFIG_CHECK}"
+log_info "  Workspace zapisljiv:          ${WS_CHECK}"
+log_info "  App API pripravljen:          HTTP ${API_CODE}"
+log_info "  Ollama dosegljiv:             ${OLLAMA_REACHABLE}"
+if [[ "${OLLAMA_REACHABLE}" == "true" ]] && echo "${RUNTIME_CHECK}" | grep -q 'ok' && [[ "${CONFIG_CHECK}" == "ok" ]] && [[ "${WS_CHECK}" == "ok" ]] && [[ "${API_CODE}" == "200" ]]; then
+    log_ok "Osnovni pogoji za execution so izpolnjeni"
+else
+    log_warn "Nekateri pogoji za execution niso izpolnjeni — glej zgoraj"
+    log_warn "Agent bo morda v PSEUDO-PLANNING stanju (generira akcije, ki se ne izvedejo)"
+    log_warn "Glej RUNTIME_EXECUTOR.md za diagnostiko in resitve"
 fi
 
 log_ok "Runtime executor validacija zakljucena"
