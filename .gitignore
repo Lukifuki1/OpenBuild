@@ -1,0 +1,63 @@
+# ============================================
+# OpenBuild .gitignore
+# ============================================
+
+# ----- Environment & Secrets -----
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# ----- OpenHands runtime data -----
+data/
+data/**
+.openhands/
+workspace/
+
+# ----- Docker volumes & artifacts -----
+volumes/
+docker-volumes/
+*.tar
+*.tar.gz
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# ----- Node -----
+node_modules/
+
+# ----- OS files -----
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ----- IDE -----
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ----- Logs -----
+*.log
+logs/
+
+# ----- Models & large artifacts -----
+models/
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+*.pt
+*.pth

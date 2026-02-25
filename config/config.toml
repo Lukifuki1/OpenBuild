@@ -1,0 +1,121 @@
+################################################################################
+# OpenBuild — OpenHands v0.62.0 Konfiguracija
+################################################################################
+# Ta datoteka eksplicitno nastavi vse parametre za runtime, orodja in pravice.
+# OpenHands jo prebere ob zagonu iz /.openhands/config.toml (mount v kontejner).
+################################################################################
+
+#################################### Core ####################################
+[core]
+# Runtime: Docker (ustvarja sandbox kontejnerje prek Docker socket-a)
+runtime = "docker"
+
+# Privzeti agent
+default_agent = "CodeActAgent"
+
+# Brskalnik omogocen (Playwright/BrowserGym)
+enable_browser = true
+
+# Brez omejitve proracuna
+max_budget_per_task = 0.0
+
+# Maksimalno stevilo iteracij agenta
+max_iterations = 500
+
+# Workspace pot v sandbox-u
+workspace_mount_path_in_sandbox = "/workspace"
+
+# Teci kot openhands (pravilne pravice)
+run_as_openhands = true
+
+# Brez omejitve velikosti datotek
+file_uploads_max_file_size_mb = 0
+file_uploads_restrict_file_types = false
+file_uploads_allowed_extensions = [".*"]
+
+#################################### LLM #####################################
+[llm]
+# Qwen3-Coder:30B prek Ollama serverja (fiksno)
+model = "ollama/qwen3-coder:30b"
+api_key = "local-key"
+base_url = "http://host.docker.internal:11434"
+
+# Ollama-specificne nastavitve
+temperature = 0.0
+num_retries = 8
+retry_max_wait = 120
+retry_min_wait = 15
+
+#################################### Agent ###################################
+[agent]
+# === ORODJA (vsa eksplicitno omogocena) ===
+
+# Shell/Bash orodje — izvrsevanje ukazov
+enable_cmd = true
+
+# Urejevalnik datotek (str_replace_editor)
+enable_editor = true
+
+# Brskanje po spletu (Playwright/BrowserGym)
+enable_browsing = true
+
+# SoM vizualno brskanje
+enable_som_visual_browsing = true
+
+# Jupyter/IPython orodje
+enable_jupyter = true
+
+# Think orodje (razmisljanje)
+enable_think = true
+
+# Finish orodje (zakljucitev naloge)
+enable_finish = true
+
+# MCP orodja (Model Context Protocol)
+enable_mcp = true
+
+# LLM editor izklopljen (uporabljamo standardnega)
+enable_llm_editor = false
+
+# Prompt razsiritve omogocene
+enable_prompt_extensions = true
+
+# Rezanje zgodovine omogoceno (za dolge seje)
+enable_history_truncation = true
+
+# Plan mode omogocen (za kompleksne naloge)
+enable_plan_mode = true
+
+#################################### Sandbox ###################################
+[sandbox]
+# Timeout za sandbox akcije (sekunde)
+timeout = 120
+
+# Base image za sandbox
+base_container_image = "nikolaik/python-nodejs:python3.12-nodejs22"
+
+# Inicializacija pluginov (Jupyter, agent_skills, VSCode)
+initialize_plugins = true
+
+# Auto-lint po urejanju
+enable_auto_lint = false
+
+# Host omrezje izklopljeno (sandbox je izoliran, a ima dostop do interneta)
+use_host_network = false
+
+# Zadrzi runtime po koncu seje
+keep_runtime_alive = false
+
+# Pavziraj zaprte runtime-e
+pause_closed_runtimes = true
+
+# Zakasnitev pred zaprtjem (sekunde)
+close_delay = 3600
+
+#################################### Security ###################################
+[security]
+# Potrditveni nacin IZKLOPLJEN — agent izvrsuje brez vprasevanja
+confirmation_mode = false
+
+# Brez varnostnega analizatorja — polne pravice za izvrsevanje
+# security_analyzer = ""

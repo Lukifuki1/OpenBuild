@@ -1,0 +1,77 @@
+# ============================================
+# OpenBuild + OpenHands v0.62.0
+# Docker Compose — produkcijska konfiguracija
+# ============================================
+# Zagon: docker compose up -d
+# Uporabi start.sh za celoten bootstrap.
+# ============================================
+
+services:
+  openhands:
+    image: docker.openhands.dev/openhands/openhands:0.62
+    container_name: openbuild-openhands
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+    environment:
+      # --- Runtime / Sandbox ---
+      - SANDBOX_RUNTIME_CONTAINER_IMAGE=${SANDBOX_RUNTIME_CONTAINER_IMAGE:-docker.openhands.dev/openhands/runtime:0.62-nikolaik}
+      - WORKSPACE_MOUNT_PATH=${WORKSPACE_BASE:-./workspace}
+      - SANDBOX_USER_ID=${SANDBOX_USER_ID:-}
+      - SANDBOX_VOLUMES=${SANDBOX_VOLUMES:-}
+      # --- LLM (Qwen3-Coder:30B prek Ollama) ---
+      - LLM_API_KEY=${LLM_API_KEY:-local-key}
+      - LLM_MODEL=${LLM_MODEL:-ollama/qwen3-coder:30b}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434}
+      # --- Logiranje ---
+      - LOG_ALL_EVENTS=${LOG_ALL_EVENTS:-true}
+      # --- Varnost ---
+      - JWT_SECRET=${JWT_SECRET:-}
+
+    ports:
+      - "${OPENHANDS_PORT:-3000}:3000"
+
+    extra_hosts:
+      # Omogoca komunikacijo med kontejnerji in host-om
+      # Kljucno za: Docker-in-Docker, Ollama dostop, sandbox mreza
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      # Docker socket — omogoca OpenHands ustvarjanje in upravljanje sandbox kontejnerjev
+      # Brez tega agent NE MORE izvrsevati ukazov ali zaganjati projektov
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Stanje OpenHands (pogovori, nastavitve, config.toml)
+      - openhands-state:/.openhands
+      # Workspace za agenta (zapisljiv, deljeno z gostiteljem)
+      - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
+      # Konfiguracija — config.toml z eksplicitnimi nastavitvami orodij in pravic
+      - ./config/config.toml:/.openhands/config.toml:ro
+
+    networks:
+      - openbuild-net
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: "8"
+        reservations:
+          memory: 2G
+          cpus: "2"
+
+networks:
+  openbuild-net:
+    name: openbuild-net
+    driver: bridge
+
+volumes:
+  openhands-state:
+    name: openbuild-openhands-state
