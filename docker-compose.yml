@@ -24,9 +24,13 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-local-key}
       - LLM_MODEL=${LLM_MODEL:-ollama/qwen3-coder:30b}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:11434}
-      # KRITICNO: native tool calling MORA biti true za Ollama/Qwen3 modele
-      # Brez tega model halucinira tool imena in execution ne deluje
-      - LLM_NATIVE_TOOL_CALLING=true
+      # KRITICNO: native_tool_calling MORA biti false za Ollama modele!
+      # Ollama NE podpira native tool calling pravilno za Qwen3-Coder.
+      # Z true: model izpise text namesto tool call-ov, agent se "zatakne".
+      # Z false: OpenHands uporabi mock function calling (prompt-based),
+      # ki zanesljivo deluje z vsemi Ollama modeli.
+      # Ref: https://github.com/OpenHands/OpenHands/issues/8140
+      - LLM_NATIVE_TOOL_CALLING=false
       # --- Logiranje ---
       - LOG_ALL_EVENTS=${LOG_ALL_EVENTS:-true}
       # --- Varnost ---
@@ -50,8 +54,12 @@ services:
       - ${OPENHANDS_STATE_DIR:-./.openhands-state}:/.openhands
       # Workspace za agenta (zapisljiv, deljeno z gostiteljem)
       - ${WORKSPACE_BASE:-./workspace}:/opt/workspace_base
-      # Konfiguracija — config.toml z eksplicitnimi nastavitvami orodij in pravic
-      - ./config/config.toml:/.openhands/config.toml:ro
+      # Konfiguracija — config.toml MORA biti mountan na /app/config.toml!
+      # OpenHands isce config.toml relativno na CWD (/app), NE na /.openhands/.
+      # Napacen mount (/.openhands/config.toml) povzroci: config NI prebran,
+      # vse nastavitve (orodja, pravice, sandbox) se ignorirajo.
+      # Ref: https://github.com/All-Hands-AI/OpenHands/issues/5957
+      - ./config/config.toml:/app/config.toml:ro
 
     networks:
       - openbuild-net
