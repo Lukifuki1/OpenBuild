@@ -847,11 +847,19 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # Configure MCP - SDK expects format: {'mcpServers': {'server_name': {...}}}
         mcp_servers: dict[str, Any] = {}
 
-        # Add system-generated servers (default + tavily)
-        await self._add_system_mcp_servers(mcp_servers, user)
+        # When OH_ENABLE_MCP is "false", skip all MCP servers to keep the
+        # total tool count low.  Local models like qwen3-coder struggle
+        # with native function calling when given more than ~5 tools.
+        # The default MCP server adds git tools (create_pr, create_mr, …)
+        # which push the count above the threshold.
+        enable_mcp = os.environ.get('OH_ENABLE_MCP', 'true').lower() != 'false'
 
-        # Merge custom servers from user settings
-        self._merge_custom_mcp_config(mcp_servers, user)
+        if enable_mcp:
+            # Add system-generated servers (default + tavily)
+            await self._add_system_mcp_servers(mcp_servers, user)
+
+            # Merge custom servers from user settings
+            self._merge_custom_mcp_config(mcp_servers, user)
 
         # Wrap in the mcpServers structure required by the SDK
         mcp_config = {'mcpServers': mcp_servers} if mcp_servers else {}
