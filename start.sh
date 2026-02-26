@@ -92,7 +92,7 @@ if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
 fi
 ok "Ollama server tece"
 
-if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "${OLLAMA_MODEL}"; then
+if ! ollama list 2>/dev/null | awk '{print $1}' | grep -q "${OLLAMA_MODEL}"; then
   info "Model ${OLLAMA_MODEL} ni najden. Prenasam..."
   ollama pull "${OLLAMA_MODEL}" || die "Neuspesno prenasanje modela ${OLLAMA_MODEL}"
   ok "Model ${OLLAMA_MODEL} prenesen"
@@ -151,6 +151,8 @@ fi
 # 5) Konfiguracija (env vars)
 info "Korak 5/6: Nastavljam privzete LLM nastavitve za Ollama..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
+mkdir -p "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
+chmod 777 "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
 
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${OLLAMA_MODEL}"
