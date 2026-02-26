@@ -8,10 +8,17 @@
 # This module belongs to the old V0 web server. The V1 application server lives under openhands/app_server/.
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
-from starlette.types import Scope
+from starlette.types import Receive, Scope, Send
 
 
 class SPAStaticFiles(StaticFiles):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # StaticFiles only handles HTTP — let WebSocket requests pass through
+        # instead of hitting the assert scope["type"] == "http" assertion.
+        if scope["type"] != "http":
+            return
+        await super().__call__(scope, receive, send)
+
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
             return await super().get_response(path, scope)

@@ -498,6 +498,75 @@ class DockerSandboxService(SandboxService):
         except (NotFound, APIError):
             return False
 
+    async def pause_old_sandboxes(self, max_num_sandboxes: int) -> list[str]:
+        """Override to DELETE old sandboxes instead of just pausing them.
+
+        On a local host-native setup Docker containers accumulate if they are
+        only paused.  This override stops and removes (deletes) the oldest
+        running containers when the limit is exceeded **and** removes any
+        already-stopped / exited containers so they do not pile up.
+        """
+        # First, clean up any stopped / exited containers so they don't accumulate
+        await self._cleanup_stopped_containers()
+
+        if max_num_sandboxes <= 0:
+            raise ValueError('max_num_sandboxes must be greater than 0')
+
+        # Collect running sandboxes by iterating through all pages
+        running_sandboxes: list[SandboxInfo] = []
+        page_id: str | None = None
+        while True:
+            page = await self.search_sandboxes(page_id=page_id, limit=100)
+            for sandbox in page.items:
+                if sandbox.status == SandboxStatus.RUNNING:
+                    running_sandboxes.append(sandbox)
+            if page.next_page_id is None:
+                break
+            page_id = page.next_page_id
+
+        if len(running_sandboxes) <= max_num_sandboxes:
+            return []
+
+        # Sort oldest-first and delete the excess
+        running_sandboxes.sort(key=lambda s: s.created_at)
+        num_to_delete = len(running_sandboxes) - max_num_sandboxes
+        deleted_ids: list[str] = []
+        for sandbox in running_sandboxes[:num_to_delete]:
+            try:
+                if await self.delete_sandbox(sandbox.id):
+                    deleted_ids.append(sandbox.id)
+                    _logger.info(f'Auto-deleted old sandbox {sandbox.id}')
+            except Exception:
+                _logger.warning(
+                    f'Failed to auto-delete sandbox {sandbox.id}', exc_info=True
+                )
+        return deleted_ids
+
+    async def _cleanup_stopped_containers(self) -> None:
+        """Remove all stopped / exited / dead containers with our prefix.
+
+        This prevents Docker containers from accumulating on the host after
+        conversations end.
+        """
+        try:
+            all_containers = self.docker_client.containers.list(all=True)
+            for container in all_containers:
+                if not (
+                    container.name
+                    and container.name.startswith(self.container_name_prefix)
+                ):
+                    continue
+                if container.status in ('exited', 'dead', 'created'):
+                    try:
+                        container.remove(force=True)
+                        _logger.info(
+                            f'Cleaned up stopped container {container.name}'
+                        )
+                    except (NotFound, APIError):
+                        pass
+        except APIError:
+            _logger.warning('Failed to list containers for cleanup', exc_info=True)
+
 
 class DockerSandboxServiceInjector(SandboxServiceInjector):
     """Dependency injector for docker sandbox services."""
