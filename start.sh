@@ -410,7 +410,8 @@ install_project_deps() {
             cur_poetry_ver=$(poetry --version 2>/dev/null | grep -oP 'Poetry \(version \K[0-9]+' || echo "")
             if [[ -n "$lock_poetry_ver" && -n "$cur_poetry_ver" && "$lock_poetry_ver" != "$cur_poetry_ver" ]]; then
                 log_warn "poetry.lock je iz Poetry ${lock_poetry_ver}.x, ti imas Poetry ${cur_poetry_ver}.x — regeneriram lock..."
-                poetry lock --no-update 2>&1 | tail -3
+                rm -f "${SCRIPT_DIR}/poetry.lock"
+                poetry lock 2>&1 | tail -5
             fi
         fi
 
@@ -418,7 +419,7 @@ install_project_deps() {
         if ! poetry install --without evaluation 2>&1 | tail -10; then
             log_warn "Poetry install ni uspel. Regeneriram poetry.lock in poskusam znova..."
             rm -f "${SCRIPT_DIR}/poetry.lock"
-            poetry lock --no-update 2>&1 | tail -5
+            poetry lock 2>&1 | tail -5
             poetry install --without evaluation 2>&1 | tail -10
         fi
         echo "$pyproject_hash" > "${STATE_DIR}/pyproject.hash"
