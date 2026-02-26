@@ -5,15 +5,15 @@ set -euo pipefail
 # OpenDevin - start.sh
 # Avtomatski zagonski skript za OpenDevin na Ubuntu z Ollama + GPU
 #
-# Kaj naredi:
-#   1. Preveri in namesti manjkajoce odvisnosti (Python 3.11+, Node.js, npm,
-#      Poetry, Docker, Ollama, NVIDIA GPU driver)
-#   2. Ustvari .env in config.toml za Ollama (GPU)
-#   3. Namesti Python in frontend odvisnosti
-#   4. Zgradi frontend
-#   5. Potegne Docker sandbox sliko
-#   6. Zazene Ollama server (ce ne tece)
-#   7. Zazene backend + frontend -> odpre brskalnik
+# Ob prvem zagonu:
+#   - Preveri in namesti vse manjkajoce odvisnosti
+#   - Ustvari .env in config.toml
+#   - Namesti Python/frontend odvisnosti, zgradi frontend
+#   - Potegne Docker sandbox sliko
+#
+# Ob ponovnem zagonu:
+#   - Preveri kaj je ze namesceno/zgrajeno in preskoci
+#   - Samo zazene servise
 ###############################################################################
 
 # ======================== BARVE ========================
@@ -30,8 +30,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 WORKSPACE_DIR="${SCRIPT_DIR}/workspace"
-BACKEND_PORT=3000
-FRONTEND_PORT=3001
+BACKEND_PORT="${BACKEND_PORT:-3000}"
+FRONTEND_PORT="${FRONTEND_PORT:-3001}"
 OLLAMA_PORT=11434
 OLLAMA_HOST="http://localhost:${OLLAMA_PORT}"
 
@@ -39,13 +39,66 @@ OLLAMA_HOST="http://localhost:${OLLAMA_PORT}"
 DEFAULT_LLM_MODEL="${LLM_MODEL:-ollama/qwen3-coder:30b}"
 DEFAULT_OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3-coder:30b}"
 
+# State direktorij za sledenje kaj je ze namesceno
+STATE_DIR="${SCRIPT_DIR}/.opendevin-state"
+
+# PID spremenljivke za cleanup
+BACKEND_PID=""
+FRONTEND_PID=""
+
 log_info()  { echo -e "${BLUE}[INFO]${RESET}  $*"; }
 log_ok()    { echo -e "${GREEN}[OK]${RESET}    $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
 log_err()   { echo -e "${RED}[ERR]${RESET}   $*"; }
 log_step()  { echo -e "\n${BOLD}${CYAN}=== $* ===${RESET}\n"; }
+log_skip()  { echo -e "${GREEN}[SKIP]${RESET}  $* (ze opravljeno)"; }
 
 command_exists() { command -v "$1" &>/dev/null; }
+
+# ======================== STATE MANAGEMENT ========================
+state_init() {
+    mkdir -p "$STATE_DIR"
+}
+
+state_is_done() {
+    [[ -f "${STATE_DIR}/$1" ]]
+}
+
+state_mark_done() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S')" > "${STATE_DIR}/$1"
+}
+
+state_clear() {
+    rm -f "${STATE_DIR}/$1"
+}
+
+state_clear_all() {
+    rm -rf "$STATE_DIR"
+    mkdir -p "$STATE_DIR"
+}
+
+file_hash() {
+    if [[ -f "$1" ]]; then
+        md5sum "$1" 2>/dev/null | cut -d' ' -f1
+    else
+        echo "missing"
+    fi
+}
+
+# ======================== CLEANUP ========================
+cleanup() {
+    echo ""
+    log_info "Ustavljam OpenDevin..."
+    if [[ -n "${BACKEND_PID:-}" ]]; then
+        kill "$BACKEND_PID" 2>/dev/null || true
+    fi
+    if [[ -n "${FRONTEND_PID:-}" ]]; then
+        kill "$FRONTEND_PID" 2>/dev/null || true
+    fi
+    rm -f "${SCRIPT_DIR}/.backend.pid" "${SCRIPT_DIR}/.frontend.pid"
+    log_ok "OpenDevin ustavljen."
+    exit 0
+}
 
 # ======================== 1. PREVERJANJE SISTEMA ========================
 check_system() {
@@ -74,6 +127,11 @@ check_gpu() {
         nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader | while read -r line; do
             log_info "  GPU $line"
         done
+
+        # Dinamicno nastavi CUDA_VISIBLE_DEVICES glede na stevilo GPU
+        GPU_INDICES=$(nvidia-smi --query-gpu=index --format=csv,noheader,nounits | paste -sd',')
+        export CUDA_VISIBLE_DEVICES="$GPU_INDICES"
+        log_info "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
         # Preveri NVIDIA Container Toolkit
         if dpkg -l nvidia-container-toolkit &>/dev/null; then
@@ -154,10 +212,12 @@ install_dependencies() {
         curl -sSL https://install.python-poetry.org | $PYTHON_CMD -
         export PATH="$HOME/.local/bin:$PATH"
         # Dodaj v .bashrc ce se ni tam
-        if ! grep -q 'poetry' "$HOME/.bashrc" 2>/dev/null; then
+        if ! grep -q '\.local/bin' "$HOME/.bashrc" 2>/dev/null; then
             echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
         fi
     fi
+    # Zagotovi da je poetry v PATH
+    export PATH="$HOME/.local/bin:$PATH"
     log_ok "Poetry: $(poetry --version)"
 
     # Docker
@@ -181,7 +241,7 @@ install_dependencies() {
     fi
 
     # netcat za health check
-    if ! command_exists nc; then
+    if ! command_exists nc && ! command_exists ncat; then
         sudo apt-get install -y -qq netcat-openbsd 2>/dev/null || sudo apt-get install -y -qq ncat 2>/dev/null || true
     fi
 
@@ -200,9 +260,7 @@ setup_ollama() {
     # Zagotovi da Ollama tece
     if ! curl -sf "${OLLAMA_HOST}/api/tags" &>/dev/null; then
         log_info "Zaganjam Ollama server..."
-        # Nastavi GPU environment za Ollama
-        export OLLAMA_NUM_GPU=999  # Uporabi vse GPU
-        export CUDA_VISIBLE_DEVICES=0,1
+        export OLLAMA_NUM_GPU=999
 
         # Poskusi zagnati prek systemd ali v ozadju
         if systemctl is-active --quiet ollama 2>/dev/null; then
@@ -237,7 +295,7 @@ setup_ollama() {
     # Preveri ali prenesi model
     OLLAMA_MODEL_NAME="${DEFAULT_OLLAMA_MODEL}"
     if ollama list 2>/dev/null | grep -q "${OLLAMA_MODEL_NAME}"; then
-        log_ok "Model ${OLLAMA_MODEL_NAME} je ze prenesen"
+        log_skip "Model ${OLLAMA_MODEL_NAME} je ze prenesen"
     else
         log_info "Prenasam model ${OLLAMA_MODEL_NAME}... (to lahko traja)"
         ollama pull "${OLLAMA_MODEL_NAME}"
@@ -255,8 +313,15 @@ setup_config() {
 
     mkdir -p "$WORKSPACE_DIR"
 
-    # Ustvari .env
-    cat > "${SCRIPT_DIR}/.env" <<EOF
+    # Dinamicno zaznaj GPU indekse
+    local gpu_devices="0"
+    if command_exists nvidia-smi; then
+        gpu_devices=$(nvidia-smi --query-gpu=index --format=csv,noheader,nounits | paste -sd',')
+    fi
+
+    # Ustvari .env SAMO ce ne obstaja
+    if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
+        cat > "${SCRIPT_DIR}/.env" <<EOF
 # ============================================
 # OpenDevin - Avtomatsko ustvarjena konfiguracija
 # Datum: $(date '+%Y-%m-%d %H:%M:%S')
@@ -284,17 +349,21 @@ MAX_ITERATIONS=100
 MAX_CHARS=5000000
 
 # ----- GPU -----
-CUDA_VISIBLE_DEVICES=0,1
+CUDA_VISIBLE_DEVICES=${gpu_devices}
 OLLAMA_NUM_GPU=999
 
 # ----- Server -----
 BACKEND_HOST="127.0.0.1:${BACKEND_PORT}"
 FRONTEND_PORT="${FRONTEND_PORT}"
 EOF
-    log_ok ".env ustvarjen"
+        log_ok ".env ustvarjen"
+    else
+        log_skip ".env ze obstaja (uporabi --force-config za ponovno ustvarjanje)"
+    fi
 
-    # Ustvari config.toml
-    cat > "${SCRIPT_DIR}/config.toml" <<EOF
+    # Ustvari config.toml SAMO ce ne obstaja
+    if [[ ! -f "${SCRIPT_DIR}/config.toml" ]]; then
+        cat > "${SCRIPT_DIR}/config.toml" <<EOF
 # OpenDevin config - avtomatsko ustvarjeno
 # Datum: $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -308,7 +377,10 @@ WORKSPACE_BASE="${WORKSPACE_DIR}"
 AGENT="MonologueAgent"
 MAX_ITERATIONS=100
 EOF
-    log_ok "config.toml ustvarjen"
+        log_ok "config.toml ustvarjen"
+    else
+        log_skip "config.toml ze obstaja"
+    fi
 
     log_info "Konfiguracija:"
     log_info "  Model: ${DEFAULT_LLM_MODEL}"
@@ -322,45 +394,84 @@ EOF
 install_project_deps() {
     log_step "6/8 Nameščanje projektnih odvisnosti"
 
-    # Python odvisnosti
-    log_info "Nameščam Python odvisnosti prek Poetry..."
-    poetry install --without evaluation 2>&1 | tail -5
-    log_ok "Python odvisnosti nameščene"
+    # Python odvisnosti - preveri hash pyproject.toml
+    local pyproject_hash
+    pyproject_hash=$(file_hash "${SCRIPT_DIR}/pyproject.toml")
+    local saved_hash=""
+    [[ -f "${STATE_DIR}/pyproject.hash" ]] && saved_hash=$(cat "${STATE_DIR}/pyproject.hash")
 
-    # Frontend odvisnosti
-    log_info "Nameščam frontend odvisnosti..."
-    cd "${SCRIPT_DIR}/frontend"
-    npm install 2>&1 | tail -5
-    npm run make-i18n 2>&1 || true
-    cd "$SCRIPT_DIR"
-    log_ok "Frontend odvisnosti nameščene"
+    if [[ "$pyproject_hash" != "$saved_hash" ]]; then
+        log_info "Nameščam Python odvisnosti prek Poetry..."
+        poetry install --without evaluation 2>&1 | tail -5
+        echo "$pyproject_hash" > "${STATE_DIR}/pyproject.hash"
+        log_ok "Python odvisnosti nameščene"
+    else
+        log_skip "Python odvisnosti (pyproject.toml se ni spremenil)"
+    fi
+
+    # Frontend odvisnosti - preveri hash package.json
+    local pkg_hash
+    pkg_hash=$(file_hash "${SCRIPT_DIR}/frontend/package.json")
+    local saved_pkg_hash=""
+    [[ -f "${STATE_DIR}/package.hash" ]] && saved_pkg_hash=$(cat "${STATE_DIR}/package.hash")
+
+    if [[ "$pkg_hash" != "$saved_pkg_hash" ]]; then
+        log_info "Nameščam frontend odvisnosti..."
+        cd "${SCRIPT_DIR}/frontend"
+        npm install 2>&1 | tail -5
+        npm run make-i18n 2>&1 || true
+        cd "$SCRIPT_DIR"
+        echo "$pkg_hash" > "${STATE_DIR}/package.hash"
+        log_ok "Frontend odvisnosti nameščene"
+    else
+        log_skip "Frontend odvisnosti (package.json se ni spremenil)"
+    fi
 }
 
 # ======================== 7. BUILD ========================
 build_project() {
     log_step "7/8 Gradnja projekta"
 
-    # Docker sandbox slika
-    log_info "Prenasam Docker sandbox sliko..."
-    if docker pull ghcr.io/opendevin/sandbox 2>&1 | tail -3; then
-        log_ok "Docker sandbox slika prenesena"
+    # Docker sandbox slika - preveri ce ze obstaja
+    if docker image inspect ghcr.io/opendevin/sandbox &>/dev/null && state_is_done "docker_sandbox"; then
+        log_skip "Docker sandbox slika ze prenesena"
     else
-        log_warn "Nisem mogel prenesti sandbox slike. Gradim lokalno..."
-        docker build -t ghcr.io/opendevin/sandbox -f containers/sandbox/Dockerfile containers/sandbox/
-        log_ok "Docker sandbox slika zgrajena lokalno"
+        log_info "Prenasam Docker sandbox sliko..."
+        if docker pull ghcr.io/opendevin/sandbox 2>&1 | tail -3; then
+            state_mark_done "docker_sandbox"
+            log_ok "Docker sandbox slika prenesena"
+        else
+            log_warn "Nisem mogel prenesti sandbox slike. Gradim lokalno..."
+            docker build -t ghcr.io/opendevin/sandbox -f containers/sandbox/Dockerfile containers/sandbox/
+            state_mark_done "docker_sandbox"
+            log_ok "Docker sandbox slika zgrajena lokalno"
+        fi
     fi
 
-    # Frontend build
-    log_info "Gradim frontend..."
-    cd "${SCRIPT_DIR}/frontend"
-    npm run build 2>&1 | tail -5
-    cd "$SCRIPT_DIR"
-    log_ok "Frontend zgrajen"
+    # Frontend build - preveri hash frontend/src
+    local src_hash
+    src_hash=$(find "${SCRIPT_DIR}/frontend/src" -type f -exec md5sum {} + 2>/dev/null | sort | md5sum | cut -d' ' -f1)
+    local saved_src_hash=""
+    [[ -f "${STATE_DIR}/frontend_src.hash" ]] && saved_src_hash=$(cat "${STATE_DIR}/frontend_src.hash")
+
+    if [[ "$src_hash" != "$saved_src_hash" ]] || [[ ! -d "${SCRIPT_DIR}/frontend/build" ]]; then
+        log_info "Gradim frontend..."
+        cd "${SCRIPT_DIR}/frontend"
+        npm run build 2>&1 | tail -5
+        cd "$SCRIPT_DIR"
+        echo "$src_hash" > "${STATE_DIR}/frontend_src.hash"
+        log_ok "Frontend zgrajen"
+    else
+        log_skip "Frontend build (izvorna koda se ni spremenila)"
+    fi
 }
 
 # ======================== 8. ZAGON ========================
 start_app() {
     log_step "8/8 Zaganjanje OpenDevin"
+
+    # TRAP na zacetku - PRED zaganjanjem procesov
+    trap cleanup SIGINT SIGTERM EXIT
 
     # Nalaganje .env
     set -a
@@ -458,27 +569,8 @@ start_app() {
     fi
 
     # Pocakaj na CTRL+C
-    trap cleanup SIGINT SIGTERM
     log_info "Pritisni CTRL+C za ustavitev..."
     wait
-}
-
-# ======================== CLEANUP ========================
-cleanup() {
-    echo ""
-    log_info "Ustavljam OpenDevin..."
-
-    if [[ -f "${SCRIPT_DIR}/.backend.pid" ]]; then
-        kill "$(cat "${SCRIPT_DIR}/.backend.pid")" 2>/dev/null || true
-        rm -f "${SCRIPT_DIR}/.backend.pid"
-    fi
-    if [[ -f "${SCRIPT_DIR}/.frontend.pid" ]]; then
-        kill "$(cat "${SCRIPT_DIR}/.frontend.pid")" 2>/dev/null || true
-        rm -f "${SCRIPT_DIR}/.frontend.pid"
-    fi
-
-    log_ok "OpenDevin ustavljen."
-    exit 0
 }
 
 # ======================== STOP ========================
@@ -574,11 +666,13 @@ main() {
             echo "Uporaba: ./start.sh [OPCIJA]"
             echo ""
             echo "Opcije:"
-            echo "  (brez)       Zazeni OpenDevin (preveri, namesti, zazeni)"
-            echo "  --stop, -s   Ustavi OpenDevin"
-            echo "  --status     Pokazi status"
-            echo "  --rebuild    Ponovi gradnjo (frontend + deps)"
-            echo "  --help, -h   Pokazi to pomoc"
+            echo "  (brez)         Zazeni OpenDevin (preveri, namesti, zazeni)"
+            echo "  --stop, -s     Ustavi OpenDevin"
+            echo "  --status       Pokazi status"
+            echo "  --rebuild      Ponovi gradnjo (frontend + deps)"
+            echo "  --force-config Ponovno ustvari .env in config.toml"
+            echo "  --clean        Izbrisi vse stanje in zacni znova"
+            echo "  --help, -h     Pokazi to pomoc"
             echo ""
             echo "Spremenljivke okolja:"
             echo "  LLM_MODEL       Model za LLM (privzeto: ollama/qwen3-coder:30b)"
@@ -588,13 +682,31 @@ main() {
             exit 0
             ;;
         --rebuild)
+            state_init
+            state_clear_all
             install_project_deps
             build_project
             log_ok "Ponovna gradnja koncana!"
             exit 0
             ;;
+        --force-config)
+            rm -f "${SCRIPT_DIR}/.env" "${SCRIPT_DIR}/config.toml"
+            setup_config
+            log_ok "Konfiguracija ponovno ustvarjena!"
+            exit 0
+            ;;
+        --clean)
+            log_warn "Brisem vse stanje..."
+            state_clear_all
+            rm -f "${SCRIPT_DIR}/.env" "${SCRIPT_DIR}/config.toml"
+            rm -rf "${SCRIPT_DIR}/frontend/build" "${SCRIPT_DIR}/frontend/node_modules"
+            rm -f "${SCRIPT_DIR}/.backend.pid" "${SCRIPT_DIR}/.frontend.pid"
+            log_ok "Vse stanje izbrisano. Zazeni ./start.sh za svez zacetek."
+            exit 0
+            ;;
     esac
 
+    state_init
     check_system
     check_gpu
     install_dependencies

@@ -206,3 +206,4 @@ config.toml
 # start.sh runtime files
 .backend.pid
 .frontend.pid
+.opendevin-state/
