@@ -121,7 +121,7 @@ class CodeActAgent(Agent):
                             {'role': 'user', 'content': f'Error occurred: {obs.content}. Please try again.'})
                     elif isinstance(obs, CmdOutputObservation):
                         content = 'OBSERVATION:\n' + obs.content
-                        content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]]'
+                        content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]'
                         self.messages.append({'role': 'user', 'content': content})
                     elif hasattr(obs, 'content') and obs.content:
                         self.messages.append(
@@ -140,7 +140,7 @@ class CodeActAgent(Agent):
                         {'role': 'user', 'content': obs.content})
                 elif isinstance(obs, CmdOutputObservation):
                     content = 'OBSERVATION:\n' + obs.content
-                    content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]]'
+                    content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]'
                     self.messages.append({'role': 'user', 'content': content})
                 elif isinstance(obs, AgentErrorObservation):
                     self.messages.append(

@@ -201,9 +201,21 @@ class DockerSSHBox(Sandbox):
         # get the exit code
         self.ssh.sendline('echo $?')
         self.ssh.prompt()
-        exit_code = self.ssh.before.decode('utf-8')
-        # remove the echo $? itself
-        exit_code = int(exit_code.lstrip('echo $?').strip())
+        exit_code_str = self.ssh.before.decode('utf-8')
+        # Extract the exit code robustly: find the last line that is a pure integer
+        # This handles messy output from multiline commands with \r\n> prompts
+        exit_code = -1
+        for line in reversed(exit_code_str.strip().splitlines()):
+            line = line.strip()
+            if line.isdigit():
+                exit_code = int(line)
+                break
+            # Also handle negative-ish exit codes like "127", "1", etc.
+            try:
+                exit_code = int(line)
+                break
+            except ValueError:
+                continue
         return exit_code, command_output
 
     def execute_in_background(self, cmd: str) -> BackgroundCommand:
