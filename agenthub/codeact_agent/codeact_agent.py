@@ -6,12 +6,15 @@ from opendevin.action import (
     AgentEchoAction,
     AgentFinishAction,
     CmdRunAction,
+    NullAction,
 )
 from opendevin.agent import Agent
 from opendevin.llm.llm import LLM
 from opendevin.observation import (
+    AgentErrorObservation,
     AgentMessageObservation,
     CmdOutputObservation,
+    UserMessageObservation,
 )
 from opendevin.parse_commands import parse_command_file
 from opendevin.state import State
@@ -107,9 +110,29 @@ class CodeActAgent(Agent):
         updated_info = state.updated_info
         if updated_info:
             for prev_action, obs in updated_info:
-                assert isinstance(
-                    prev_action, (CmdRunAction, AgentEchoAction)
-                ), 'Expecting CmdRunAction or AgentEchoAction for Action'
+                if isinstance(prev_action, NullAction):
+                    # NullAction comes from error recovery or user chat messages.
+                    # Add the observation content as context so the agent can continue.
+                    if isinstance(obs, UserMessageObservation):
+                        self.messages.append(
+                            {'role': 'user', 'content': obs.content})
+                    elif isinstance(obs, AgentErrorObservation):
+                        self.messages.append(
+                            {'role': 'user', 'content': f'Error occurred: {obs.content}. Please try again.'})
+                    elif isinstance(obs, CmdOutputObservation):
+                        content = 'OBSERVATION:\n' + obs.content
+                        content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]]'
+                        self.messages.append({'role': 'user', 'content': content})
+                    elif hasattr(obs, 'content') and obs.content:
+                        self.messages.append(
+                            {'role': 'user', 'content': obs.content})
+                    continue
+                if not isinstance(prev_action, (CmdRunAction, AgentEchoAction)):
+                    # Skip unknown action types gracefully
+                    if hasattr(obs, 'content') and obs.content:
+                        self.messages.append(
+                            {'role': 'user', 'content': obs.content})
+                    continue
                 if isinstance(
                     obs, AgentMessageObservation
                 ):  # warning message from itself
@@ -119,10 +142,12 @@ class CodeActAgent(Agent):
                     content = 'OBSERVATION:\n' + obs.content
                     content += f'\n[Command {obs.command_id} finished with exit code {obs.exit_code}]]'
                     self.messages.append({'role': 'user', 'content': content})
+                elif isinstance(obs, AgentErrorObservation):
+                    self.messages.append(
+                        {'role': 'user', 'content': f'Error occurred: {obs.content}. Please try again.'})
                 else:
-                    raise NotImplementedError(
-                        f'Unknown observation type: {obs.__class__}'
-                    )
+                    self.messages.append(
+                        {'role': 'user', 'content': getattr(obs, 'content', str(obs))})
         response = self.llm.completion(
             messages=self.messages,
             stop=['</execute>'],
