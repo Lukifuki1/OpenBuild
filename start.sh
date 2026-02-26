@@ -87,6 +87,7 @@ file_hash() {
 
 # ======================== CLEANUP ========================
 cleanup() {
+    local exit_code=$?
     echo ""
     log_info "Ustavljam OpenDevin..."
     if [[ -n "${BACKEND_PID:-}" ]]; then
@@ -97,7 +98,7 @@ cleanup() {
     fi
     rm -f "${SCRIPT_DIR}/.backend.pid" "${SCRIPT_DIR}/.frontend.pid"
     log_ok "OpenDevin ustavljen."
-    exit 0
+    exit "$exit_code"
 }
 
 # ======================== 1. PREVERJANJE SISTEMA ========================
@@ -401,8 +402,25 @@ install_project_deps() {
     [[ -f "${STATE_DIR}/pyproject.hash" ]] && saved_hash=$(cat "${STATE_DIR}/pyproject.hash")
 
     if [[ "$pyproject_hash" != "$saved_hash" ]]; then
+        # Preveri ce je poetry.lock iz stare verzije Poetry
+        if [[ -f "${SCRIPT_DIR}/poetry.lock" ]]; then
+            local lock_poetry_ver
+            lock_poetry_ver=$(head -3 "${SCRIPT_DIR}/poetry.lock" | grep -oP 'Poetry \K[0-9]+' || echo "")
+            local cur_poetry_ver
+            cur_poetry_ver=$(poetry --version 2>/dev/null | grep -oP 'Poetry \(version \K[0-9]+' || echo "")
+            if [[ -n "$lock_poetry_ver" && -n "$cur_poetry_ver" && "$lock_poetry_ver" != "$cur_poetry_ver" ]]; then
+                log_warn "poetry.lock je iz Poetry ${lock_poetry_ver}.x, ti imas Poetry ${cur_poetry_ver}.x — regeneriram lock..."
+                poetry lock --no-update 2>&1 | tail -3
+            fi
+        fi
+
         log_info "Nameščam Python odvisnosti prek Poetry..."
-        poetry install --without evaluation 2>&1 | tail -5
+        if ! poetry install --without evaluation 2>&1 | tail -10; then
+            log_warn "Poetry install ni uspel. Regeneriram poetry.lock in poskusam znova..."
+            rm -f "${SCRIPT_DIR}/poetry.lock"
+            poetry lock --no-update 2>&1 | tail -5
+            poetry install --without evaluation 2>&1 | tail -10
+        fi
         echo "$pyproject_hash" > "${STATE_DIR}/pyproject.hash"
         log_ok "Python odvisnosti nameščene"
     else
