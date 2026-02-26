@@ -131,6 +131,8 @@ fi
 # ── Step 5: Environment ───────────────────────────────────────
 info "Korak 5/6: Nastavljam LLM nastavitve za Ollama..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
+mkdir -p "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
+chmod 777 "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
 
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${OLLAMA_MODEL}"
