@@ -896,9 +896,17 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
                 mcp_config=mcp_config,
             )
         else:
+            # Respect OH_ENABLE_BROWSER env var.  Local models like
+            # qwen3-coder struggle with native function calling when the
+            # tool count exceeds ~5.  The browser tool-set alone adds ~13
+            # sub-tools; disabling it keeps the total at 3 (terminal,
+            # file_editor, task_tracker) which is within the model's limit.
+            enable_browser = (
+                os.environ.get('OH_ENABLE_BROWSER', 'true').lower() != 'false'
+            )
             agent = Agent(
                 llm=llm,
-                tools=get_default_tools(enable_browser=True),
+                tools=get_default_tools(enable_browser=enable_browser),
                 system_prompt_kwargs={'cli_mode': False},
                 condenser=condenser,
                 mcp_config=mcp_config,

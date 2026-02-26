@@ -191,6 +191,14 @@ export LLM_MODEL="openai/${OLLAMA_MODEL}"
 export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
+# Disable browser tools for local Ollama models.
+# qwen3-coder (and similar local models) cannot handle native function calling
+# when the tool count exceeds ~5.  The default tool set includes ~13 browser
+# sub-tools (navigate, click, type, scroll, …) which pushes the total to 19.
+# With browser disabled the agent keeps terminal + file_editor + task_tracker
+# (3 tools), well within the model's limit.
+export OH_ENABLE_BROWSER=false
+
 # Write a fresh settings.json so the OpenHands server has the correct
 # LLM configuration from the very first request.  Without this file the
 # GET /api/settings endpoint returns 404, the frontend shows a blank
