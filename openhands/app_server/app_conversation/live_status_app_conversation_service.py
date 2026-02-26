@@ -654,8 +654,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # text output (e.g. <function=terminal>...) to extract tool calls.
         # This "prompt-mocked" approach works far more reliably with small
         # local models.
-        native_tc_raw = os.environ.get('LLM_NATIVE_TOOL_CALLING', 'true')
-        native_tool_calling = native_tc_raw.lower() not in ('false', '0', 'no', 'off')
+        native_tc_raw = os.environ.get('LLM_NATIVE_TOOL_CALLING')
+        if native_tc_raw is not None:
+            native_tool_calling: bool | None = native_tc_raw.lower() not in ('false', '0', 'no', 'off')
+        else:
+            native_tool_calling = None
 
         return LLM(
             model=model,
