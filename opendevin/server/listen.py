@@ -1,4 +1,7 @@
+import json
+import os
 import uuid
+import urllib.request
 from pathlib import Path
 
 import litellm
@@ -48,9 +51,28 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get('/api/litellm-models')
 async def get_litellm_models():
     """
-    Get all models supported by LiteLLM.
+    Get all models supported by LiteLLM, including Ollama models.
     """
-    return list(set(litellm.model_list + list(litellm.model_cost.keys())))
+    models = list(set(litellm.model_list + list(litellm.model_cost.keys())))
+
+    # Fetch models from Ollama if available
+    ollama_base_url = os.environ.get('LLM_BASE_URL', 'http://localhost:11434')
+    try:
+        req = urllib.request.Request(f'{ollama_base_url}/api/tags', method='GET')
+        req.add_header('Accept', 'application/json')
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+            for model_info in data.get('models', []):
+                model_name = model_info.get('name', '')
+                if model_name:
+                    ollama_id = f'ollama/{model_name}'
+                    if ollama_id not in models:
+                        models.append(ollama_id)
+    except Exception:
+        # Ollama not available — just return LiteLLM models
+        pass
+
+    return models
 
 
 @app.get('/api/agents')
