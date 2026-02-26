@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# OpenHands v1.3.0 — Avtomatski zagon za Ubuntu + Ollama + GPU
+# OpenHands (latest stable) — Avtomatski zagon za Ubuntu + Ollama + GPU
+# Metoda: uv CLI launcher (uradno priporocena)
 # ============================================================================
 # Uporaba:
 #   ./start.sh              — Preveri odvisnosti, nastavi in zazeni OpenHands
-#   ./start.sh --stop       — Ustavi OpenHands kontejner
-#   ./start.sh --status     — Preveri status kontejnerja
-#   ./start.sh --clean      — Ustavi in odstrani vse (image, state, workspace)
-#   ./start.sh --pull       — Prisili ponovni pull Docker image-a
-#   ./start.sh --logs       — Prikazi loge kontejnerja
+#   ./start.sh --stop       — Ustavi OpenHands
+#   ./start.sh --clean      — Odstrani OpenHands, uv cache, state
+#   ./start.sh --upgrade    — Posodobi OpenHands na najnovejso verzijo
 # ============================================================================
 
 set -euo pipefail
@@ -27,79 +26,38 @@ err()   { echo -e "${RED}[ERR]${NC}   $*"; }
 die()   { err "$*"; exit 1; }
 
 # ── Konfiguracija ──
-OPENHANDS_VERSION="1.3"
-OPENHANDS_IMAGE="docker.openhands.dev/openhands/openhands:${OPENHANDS_VERSION}"
-OPENHANDS_IMAGE_FALLBACK="ghcr.io/openhands/openhands:${OPENHANDS_VERSION}"
-CONTAINER_NAME="openhands-app"
 OPENHANDS_STATE_DIR="$HOME/.openhands"
 WORKSPACE_DIR="$HOME/workspace"
 OPENHANDS_PORT=3000
 
 # Ollama konfiguracija
 OLLAMA_MODEL="qwen3-coder:30b"
-OLLAMA_HOST_URL="http://host.docker.internal:11434"
-# V OpenHands UI se model nastavi kot: openai/qwen3-coder:30b
-# Base URL: http://host.docker.internal:11434/v1
-# API Key: dummy (katerakoli vrednost)
-
-# ── Pomocne funkcije ──
-container_running() {
-    docker ps --filter "name=${CONTAINER_NAME}" --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"
-}
-
-container_exists() {
-    docker ps -a --filter "name=${CONTAINER_NAME}" --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"
-}
-
-image_exists() {
-    docker image inspect "$1" &>/dev/null
-}
-
-stop_container() {
-    if container_running; then
-        info "Ustavljam OpenHands kontejner..."
-        docker stop "${CONTAINER_NAME}" >/dev/null 2>&1
-        ok "Kontejner ustavljen"
-    fi
-    if container_exists; then
-        docker rm "${CONTAINER_NAME}" >/dev/null 2>&1
-    fi
-}
+OLLAMA_MIN_CONTEXT=32768
 
 # ── Ukazi ──
 case "${1:-}" in
     --stop)
-        stop_container
-        exit 0
-        ;;
-    --status)
-        if container_running; then
-            ok "OpenHands tece na http://localhost:${OPENHANDS_PORT}"
-            docker ps --filter "name=${CONTAINER_NAME}" --format 'table {{.Status}}\t{{.Ports}}'
-        else
-            warn "OpenHands ne tece"
-        fi
+        info "Ustavljam OpenHands..."
+        docker stop openhands-app 2>/dev/null && ok "Docker kontejner ustavljen" || true
+        pkill -f "openhands serve" 2>/dev/null && ok "OpenHands process ustavljen" || warn "OpenHands process ni najden"
         exit 0
         ;;
     --clean)
-        stop_container
-        info "Brisem Docker image..."
-        docker rmi "${OPENHANDS_IMAGE}" 2>/dev/null || true
-        docker rmi "${OPENHANDS_IMAGE_FALLBACK}" 2>/dev/null || true
-        info "Brisem state direktorij (${OPENHANDS_STATE_DIR})..."
+        info "Cistim vse..."
+        pkill -f "openhands serve" 2>/dev/null || true
+        docker stop openhands-app 2>/dev/null || true; docker rm openhands-app 2>/dev/null || true
+        uv tool uninstall openhands 2>/dev/null || true
         rm -rf "${OPENHANDS_STATE_DIR}"
         ok "Vse pocisceno. Workspace (${WORKSPACE_DIR}) ni izbrisan — pobrisi ga rocno ce zelis."
         exit 0
         ;;
-    --pull)
-        info "Prisiljujem ponovni pull Docker image-a..."
-        FORCE_PULL=1
-        ;;
-    --logs)
-        if container_exists; then
-            docker logs -f "${CONTAINER_NAME}"
+    --upgrade)
+        info "Posodabljam OpenHands..."
+        if command -v uv &>/dev/null; then
+            uv tool upgrade openhands --python 3.12
+            ok "OpenHands posodobljen"
         else
-            die "Kontejner ne obstaja. Zazeni najprej z ./start.sh"
+            die "uv ni nameschen. Zazeni najprej ./start.sh za namestitev."
         fi
         exit 0
         ;;
@@ -107,17 +65,23 @@ case "${1:-}" in
         # Normalni zagon
         ;;
     *)
-        die "Neznan ukaz: $1\nUporaba: ./start.sh [--stop|--status|--clean|--pull|--logs]"
+        die "Neznan ukaz: $1\nUporaba: ./start.sh [--stop|--clean|--upgrade]"
         ;;
 esac
+
+echo ""
+echo "============================================================"
+echo "  OpenHands — Avtomatski setup za Ubuntu + Ollama + GPU"
+echo "============================================================"
+echo ""
 
 # ============================================================================
 # KORAK 1: Preveri Docker
 # ============================================================================
-info "Korak 1/6: Preverjam Docker..."
+info "Korak 1/5: Preverjam Docker..."
 
 if ! command -v docker &>/dev/null; then
-    die "Docker ni nameschen. Namesti ga z: sudo apt install docker.io docker-compose-v2"
+    die "Docker ni nameschen. Namesti ga z: sudo apt install docker.io"
 fi
 
 if ! docker info &>/dev/null 2>&1; then
@@ -127,9 +91,9 @@ fi
 ok "Docker deluje"
 
 # ============================================================================
-# KORAK 2: Preveri Ollama
+# KORAK 2: Preveri Ollama + GPU
 # ============================================================================
-info "Korak 2/6: Preverjam Ollama..."
+info "Korak 2/5: Preverjam Ollama..."
 
 if ! command -v ollama &>/dev/null; then
     die "Ollama ni namescena. Namesti jo z: curl -fsSL https://ollama.com/install.sh | sh"
@@ -172,17 +136,45 @@ else
     warn "nvidia-smi ni najden — Ollama bo morda uporabljala CPU"
 fi
 
-# Opozorilo glede OLLAMA_CONTEXT_LENGTH
-echo ""
-warn "POMEMBNO: OpenHands zahteva velik kontekst za pravilno delovanje!"
-warn "Ce Ollama ne deluje pravilno, ustavi jo in ponovno zazeni z:"
-warn "  OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve"
-echo ""
+# ============================================================================
+# KORAK 3: Namesti uv + OpenHands
+# ============================================================================
+info "Korak 3/5: Preverjam uv in OpenHands..."
+
+# Dodaj uv v PATH
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+# Namesti uv ce ni nameschen
+if ! command -v uv &>/dev/null; then
+    info "Namescam uv (Python package manager)..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if ! command -v uv &>/dev/null; then
+        die "uv namestitev neuspesna. Poskusi rocno: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    fi
+    ok "uv nameschen"
+else
+    ok "uv ze nameschen ($(uv --version 2>/dev/null || echo 'unknown'))"
+fi
+
+# Namesti OpenHands ce ni nameschen
+if ! uv tool list 2>/dev/null | grep -q "openhands"; then
+    info "Namescam OpenHands (to traja nekaj minut prvic)..."
+    uv tool install openhands --python 3.12 || die "OpenHands namestitev neuspesna"
+    ok "OpenHands nameschen"
+else
+    ok "OpenHands ze nameschen"
+fi
+
+# Preveri da openhands ukaz obstaja
+if ! command -v openhands &>/dev/null; then
+    die "openhands ukaz ni najden v PATH. Poskusi: source ~/.bashrc ali znova odpri terminal"
+fi
 
 # ============================================================================
-# KORAK 3: Pripravi direktorije
+# KORAK 4: Pripravi direktorije
 # ============================================================================
-info "Korak 3/6: Pripravljam direktorije..."
+info "Korak 4/5: Pripravljam direktorije..."
 
 mkdir -p "${OPENHANDS_STATE_DIR}"
 mkdir -p "${WORKSPACE_DIR}"
@@ -191,109 +183,41 @@ ok "State dir: ${OPENHANDS_STATE_DIR}"
 ok "Workspace: ${WORKSPACE_DIR}"
 
 # ============================================================================
-# KORAK 4: Pull Docker image (s smart caching)
+# KORAK 5: Zazeni OpenHands
 # ============================================================================
-info "Korak 4/6: Preverjam Docker image..."
+info "Korak 5/5: Zaganjam OpenHands..."
 
-PULL_NEEDED=0
+# Ustavi stari Docker kontejner ce obstaja
+docker stop openhands-app 2>/dev/null || true; docker rm openhands-app 2>/dev/null || true
 
-if [ "${FORCE_PULL:-0}" = "1" ]; then
-    PULL_NEEDED=1
-elif ! image_exists "${OPENHANDS_IMAGE}" && ! image_exists "${OPENHANDS_IMAGE_FALLBACK}"; then
-    PULL_NEEDED=1
-fi
-
-if [ "${PULL_NEEDED}" = "1" ]; then
-    info "Prenasam OpenHands v${OPENHANDS_VERSION} Docker image..."
-    if docker pull "${OPENHANDS_IMAGE}" 2>/dev/null; then
-        USED_IMAGE="${OPENHANDS_IMAGE}"
-        ok "Image prenesen: ${USED_IMAGE}"
-    elif docker pull "${OPENHANDS_IMAGE_FALLBACK}" 2>/dev/null; then
-        USED_IMAGE="${OPENHANDS_IMAGE_FALLBACK}"
-        ok "Image prenesen (fallback): ${USED_IMAGE}"
-    else
-        die "Neuspesno prenasanje Docker image-a. Preveri internetno povezavo."
-    fi
-else
-    if image_exists "${OPENHANDS_IMAGE}"; then
-        USED_IMAGE="${OPENHANDS_IMAGE}"
-    else
-        USED_IMAGE="${OPENHANDS_IMAGE_FALLBACK}"
-    fi
-    ok "Image ze obstaja: ${USED_IMAGE}"
-fi
-
-# ============================================================================
-# KORAK 5: Ustavi obstojecega ce tece
-# ============================================================================
-info "Korak 5/6: Preverjam obstojecega kontejnerja..."
-
-if container_running; then
-    warn "OpenHands ze tece. Ustavljam starega..."
-    stop_container
-fi
-
-if container_exists; then
-    docker rm "${CONTAINER_NAME}" >/dev/null 2>&1
-fi
-
-ok "Pripravljeno za zagon"
-
-# ============================================================================
-# KORAK 6: Zazeni OpenHands
-# ============================================================================
-info "Korak 6/6: Zaganjam OpenHands v${OPENHANDS_VERSION}..."
+echo ""
+echo "============================================================"
+ok "OpenHands se zaganja na http://localhost:${OPENHANDS_PORT}"
+echo "============================================================"
+echo ""
+echo -e "  ${GREEN}UI:${NC}        http://localhost:${OPENHANDS_PORT}"
+echo -e "  ${GREEN}Workspace:${NC} ${WORKSPACE_DIR}"
+echo -e "  ${GREEN}Ustavi:${NC}    CTRL+C"
+echo ""
+echo "============================================================"
+echo -e "  ${YELLOW}NASTAVITVE (prvic v UI):${NC}"
+echo "  1. Odpri http://localhost:${OPENHANDS_PORT}"
+echo "  2. Klikni Settings (zobnik ikona)"
+echo "  3. Vklopi 'Advanced' stikalo"
+echo "  4. Nastavi:"
+echo -e "     ${BLUE}Custom Model:${NC}  openai/${OLLAMA_MODEL}"
+echo -e "     ${BLUE}Base URL:${NC}      http://localhost:11434/v1"
+echo -e "     ${BLUE}API Key:${NC}       dummy"
+echo "  5. Shrani nastavitve"
+echo "============================================================"
+echo ""
+echo -e "  ${YELLOW}POMEMBNO: Ollama mora teci z vecjim kontekstom!${NC}"
+echo "  Ce agent ne deluje pravilno, ustavi Ollamo in jo znova zazeni:"
+echo "  sudo systemctl stop ollama"
+echo "  OLLAMA_CONTEXT_LENGTH=${OLLAMA_MIN_CONTEXT} OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve"
+echo ""
+echo "============================================================"
 echo ""
 
-docker run -d \
-    --name "${CONTAINER_NAME}" \
-    -e SANDBOX_USER_ID="$(id -u)" \
-    -e SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw" \
-    -e OH_SANDBOX_USE_HOST_NETWORK=true \
-    -e LOG_ALL_EVENTS=true \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v "${OPENHANDS_STATE_DIR}:/.openhands" \
-    -p "${OPENHANDS_PORT}:3000" \
-    --add-host host.docker.internal:host-gateway \
-    "${USED_IMAGE}" >/dev/null
-
-# Pocakaj da se zazene
-info "Cakam da se OpenHands zazene..."
-for i in $(seq 1 30); do
-    if curl -sf "http://localhost:${OPENHANDS_PORT}" &>/dev/null; then
-        break
-    fi
-    sleep 2
-done
-
-if container_running; then
-    echo ""
-    echo "============================================================"
-    ok "OpenHands v${OPENHANDS_VERSION} TECE!"
-    echo "============================================================"
-    echo ""
-    echo -e "  ${GREEN}UI:${NC}        http://localhost:${OPENHANDS_PORT}"
-    echo -e "  ${GREEN}Workspace:${NC} ${WORKSPACE_DIR}"
-    echo -e "  ${GREEN}Logi:${NC}      ./start.sh --logs"
-    echo -e "  ${GREEN}Ustavi:${NC}    ./start.sh --stop"
-    echo ""
-    echo "============================================================"
-    echo -e "  ${YELLOW}NASTAVITVE (prvic):${NC}"
-    echo "  1. Odpri http://localhost:${OPENHANDS_PORT}"
-    echo "  2. Klikni Settings (zobnik ikona)"
-    echo "  3. Vklopi 'Advanced' stikalo"
-    echo "  4. Nastavi:"
-    echo -e "     ${BLUE}Custom Model:${NC}  openai/${OLLAMA_MODEL}"
-    echo -e "     ${BLUE}Base URL:${NC}      ${OLLAMA_HOST_URL}/v1"
-    echo -e "     ${BLUE}API Key:${NC}       dummy"
-    echo "  5. Shrani nastavitve"
-    echo "============================================================"
-    echo ""
-    echo -e "  ${YELLOW}Ce agent ne deluje pravilno, zagotovi da Ollama${NC}"
-    echo -e "  ${YELLOW}tece z vecjim kontekstom:${NC}"
-    echo "  OLLAMA_CONTEXT_LENGTH=32768 ollama serve"
-    echo ""
-else
-    err "OpenHands se ni zagnal. Preveri loge z: docker logs ${CONTAINER_NAME}"
-    exit 1
-fi
+# Zazeni OpenHands v foreground-u (CTRL+C za ustavitev)
+exec openhands serve --port "${OPENHANDS_PORT}"

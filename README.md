@@ -1,6 +1,6 @@
-# OpenBuild — OpenHands v1.3.0 z Ollama
+# OpenBuild — OpenHands z Ollama
 
-Avtomatski setup za [OpenHands](https://github.com/OpenHands/OpenHands) v1.3.0 z lokalno Ollama + GPU podporo.
+Avtomatski setup za [OpenHands](https://github.com/OpenHands/OpenHands) z lokalno Ollama + GPU podporo.
 
 ## Zahteve
 
@@ -21,7 +21,7 @@ chmod +x start.sh
 Skript bo:
 1. Preveril Docker in Ollama
 2. Prenesel model ce manjka
-3. Prenesel OpenHands Docker image (samo prvic)
+3. Namestil `uv` in `openhands` (samo prvic)
 4. Zagnal OpenHands na **http://localhost:3000**
 
 ## Prvic: Nastavitve v UI
@@ -31,7 +31,7 @@ Skript bo:
 3. Vklopi **Advanced** stikalo
 4. Nastavi:
    - **Custom Model:** `openai/qwen3-coder:30b`
-   - **Base URL:** `http://host.docker.internal:11434/v1`
+   - **Base URL:** `http://localhost:11434/v1`
    - **API Key:** `dummy`
 5. Shrani nastavitve
 
@@ -41,10 +41,8 @@ Skript bo:
 |------|------|
 | `./start.sh` | Zazeni OpenHands |
 | `./start.sh --stop` | Ustavi OpenHands |
-| `./start.sh --status` | Preveri status |
-| `./start.sh --logs` | Prikazi loge |
-| `./start.sh --pull` | Prisili ponovni pull image-a |
-| `./start.sh --clean` | Odstrani vse (image, state) |
+| `./start.sh --upgrade` | Posodobi na najnovejso verzijo |
+| `./start.sh --clean` | Odstrani vse (openhands, state) |
 
 ## Ollama kontekst
 
@@ -52,6 +50,7 @@ OpenHands zahteva velik kontekst. Ce agent ne deluje pravilno:
 
 ```bash
 # Ustavi Ollamo in jo ponovno zazeni z vecjim kontekstom:
+sudo systemctl stop ollama
 OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_HOST=0.0.0.0:11434 OLLAMA_KEEP_ALIVE=-1 ollama serve
 ```
 
