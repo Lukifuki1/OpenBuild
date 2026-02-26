@@ -62,17 +62,42 @@ if ! command -v ollama >/dev/null 2>&1; then
   curl -fsSL https://ollama.com/install.sh | sh || die "Ollama namestitev neuspesna"
 fi
 
-if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-  warn "Ollama server ne tece. Zaganjam (background)..."
+# Ollama must listen on 0.0.0.0 (all interfaces) so that Docker sandbox
+# containers can reach it via host.docker.internal.  By default Ollama
+# only binds to 127.0.0.1 which is unreachable from Docker bridge
+# networks, causing "Connection refused" errors in the agent.
+export OLLAMA_HOST="0.0.0.0:${OLLAMA_PORT}"
+
+# Check if Ollama is already running and reachable
+OLLAMA_RUNNING=false
+if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
+  OLLAMA_RUNNING=true
+fi
+
+# If Ollama is running, check whether it is listening on 0.0.0.0.
+# If it only listens on 127.0.0.1 we must restart it so Docker
+# containers can connect.
+if $OLLAMA_RUNNING; then
+  if ! ss -tlnp 2>/dev/null | grep ":${OLLAMA_PORT}" | grep -q '0\.0\.0\.0'; then
+    warn "Ollama poslusa samo na 127.0.0.1. Ponovno zaganjam na 0.0.0.0..."
+    # Try to stop the existing Ollama gracefully
+    pkill -f 'ollama serve' 2>/dev/null || true
+    sleep 2
+    OLLAMA_RUNNING=false
+  fi
+fi
+
+if ! $OLLAMA_RUNNING; then
+  warn "Ollama server ne tece (ali ni na 0.0.0.0). Zaganjam (background)..."
   # Use setsid to fully detach Ollama from this shell session so Ctrl+C
   # (which stops OpenHands) does NOT kill Ollama.
   setsid ollama serve </dev/null >/dev/null 2>&1 &
   sleep 3
   if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-    die "Ollama server se ni zagnal. Zazeni rocno: ollama serve"
+    die "Ollama server se ni zagnal. Zazeni rocno: OLLAMA_HOST=0.0.0.0 ollama serve"
   fi
 fi
-ok "Ollama server tece na portu ${OLLAMA_PORT}"
+ok "Ollama server tece na portu ${OLLAMA_PORT} (0.0.0.0)"
 
 if ! ollama list 2>/dev/null | awk '{print $1}' | grep -q "${OLLAMA_MODEL}"; then
   info "Model ${OLLAMA_MODEL} ni najden. Prenasam (to lahko traja)..."
