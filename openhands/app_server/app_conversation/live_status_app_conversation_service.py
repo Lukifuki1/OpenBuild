@@ -70,6 +70,7 @@ from openhands.app_server.services.jwt_service import JwtService
 from openhands.app_server.user.user_context import UserContext
 from openhands.app_server.user.user_models import UserInfo
 from openhands.app_server.utils.docker_utils import (
+    replace_localhost_for_docker_target,
     replace_localhost_hostname_for_docker,
 )
 from openhands.app_server.utils.llm_metadata import (
@@ -622,6 +623,11 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
     def _configure_llm(self, user: UserInfo, llm_model: str | None) -> LLM:
         """Configure LLM settings.
 
+        The resulting LLM config is sent to the agent-server which runs inside
+        a Docker container.  ``localhost`` URLs therefore need to be rewritten
+        to ``host.docker.internal`` so the container can reach host services
+        such as a local Ollama instance.
+
         Args:
             user: User information containing LLM preferences
             llm_model: Optional specific model to use, falls back to user default
@@ -633,6 +639,12 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         base_url = user.llm_base_url
         if model and model.startswith('openhands/'):
             base_url = user.llm_base_url or self.openhands_provider_base_url
+
+        # The LLM config will be consumed by the agent-server running inside
+        # a Docker container.  Rewrite localhost so the container can reach
+        # host-local services (e.g. Ollama).
+        if base_url:
+            base_url = replace_localhost_for_docker_target(base_url)
 
         return LLM(
             model=model,

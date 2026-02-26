@@ -64,7 +64,9 @@ fi
 
 if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
   warn "Ollama server ne tece. Zaganjam (background)..."
-  nohup ollama serve >/dev/null 2>&1 &
+  # Use setsid to fully detach Ollama from this shell session so Ctrl+C
+  # (which stops OpenHands) does NOT kill Ollama.
+  setsid ollama serve </dev/null >/dev/null 2>&1 &
   sleep 3
   if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
     die "Ollama server se ni zagnal. Zazeni rocno: ollama serve"
@@ -93,12 +95,14 @@ else
   ok "frontend: node_modules ze obstaja"
 fi
 
-if [ ! -d frontend/build ]; then
-  info "frontend: npm run build..."
-  (cd frontend && npm run build)
-else
-  ok "frontend: build ze obstaja"
-fi
+# Always rebuild the frontend.
+# The i18n locale files (public/locales/) are generated at build time by
+# make-i18n and are git-ignored.  If we skip the build because an old
+# build/ directory exists, the UI shows raw translation keys instead of
+# human-readable text.
+info "frontend: npm run build..."
+(cd frontend && npm run build)
+ok "frontend: build pripravljen"
 
 # ── Step 4: Poetry + Python deps ──────────────────────────────
 info "Korak 4/6: Preverjam Poetry + Python odvisnosti..."
@@ -137,10 +141,25 @@ for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/b
   chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
 done
 
+# Use the native Ollama provider (ollama/) with the base URL pointing
+# directly at Ollama (no /v1 suffix).  The /v1 suffix is only for
+# OpenAI-compatible endpoints (/v1/chat/completions) which requires
+# the "openai/" model prefix.  Mixing ollama/ prefix with /v1 base URL
+# causes 404 errors (litellm sends POST /v1/api/generate which does
+# not exist on Ollama).
 export LLM_API_KEY="dummy"
-export LLM_MODEL="openai/${OLLAMA_MODEL}"
-export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}/v1"
+export LLM_MODEL="ollama/${OLLAMA_MODEL}"
+export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
+
+# Remove stale user settings so the env-var defaults above always
+# take effect.  Without this, previously-saved (possibly wrong)
+# model/base_url combos in the settings file override the env vars.
+SETTINGS_FILE="${OPENHANDS_CONFIG_DIR}/settings.json"
+if [ -f "${SETTINGS_FILE}" ]; then
+  info "Odstranjujem stare nastavitve (${SETTINGS_FILE}) za sveze privzete vrednosti..."
+  rm -f "${SETTINGS_FILE}"
+fi
 
 ok "LLM_MODEL=${LLM_MODEL}"
 ok "LLM_BASE_URL=${LLM_BASE_URL}"
