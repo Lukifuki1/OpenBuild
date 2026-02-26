@@ -95,14 +95,23 @@ else
   ok "frontend: node_modules ze obstaja"
 fi
 
-# Always rebuild the frontend.
+# Always rebuild the frontend from a clean state.
 # The i18n locale files (public/locales/) are generated at build time by
-# make-i18n and are git-ignored.  If we skip the build because an old
-# build/ directory exists, the UI shows raw translation keys instead of
-# human-readable text.
+# make-i18n and are git-ignored.  If we skip the build or reuse a stale
+# build/ directory, the UI shows raw translation keys (e.g. SETTINGS$TITLE)
+# instead of human-readable text.
+if [ -d frontend/build ]; then
+  info "frontend: cistim star build/ ..."
+  rm -rf frontend/build
+fi
 info "frontend: npm run build..."
 (cd frontend && npm run build)
-ok "frontend: build pripravljen"
+
+# Sanity check: verify locale files were generated
+if [ ! -f frontend/build/locales/en/translation.json ]; then
+  die "Frontend build NI ustvaril locale datotek! Preveri npm run make-i18n."
+fi
+ok "frontend: build pripravljen (locales OK)"
 
 # ── Step 4: Poetry + Python deps ──────────────────────────────
 info "Korak 4/6: Preverjam Poetry + Python odvisnosti..."
@@ -152,14 +161,26 @@ export LLM_MODEL="ollama/${OLLAMA_MODEL}"
 export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
-# Remove stale user settings so the env-var defaults above always
-# take effect.  Without this, previously-saved (possibly wrong)
-# model/base_url combos in the settings file override the env vars.
+# Write a fresh settings.json so the OpenHands server has the correct
+# LLM configuration from the very first request.  Without this file the
+# GET /api/settings endpoint returns 404, the frontend shows a blank
+# "AI Provider Configuration" dialog, and conversations start with no
+# LLM — resulting in Connection refused / ReadTimeout errors.
 SETTINGS_FILE="${OPENHANDS_CONFIG_DIR}/settings.json"
-if [ -f "${SETTINGS_FILE}" ]; then
-  info "Odstranjujem stare nastavitve (${SETTINGS_FILE}) za sveze privzete vrednosti..."
-  rm -f "${SETTINGS_FILE}"
-fi
+info "Zapisujem nastavitve v ${SETTINGS_FILE} ..."
+cat > "${SETTINGS_FILE}" <<SETTINGS_EOF
+{
+  "language": "en",
+  "agent": "CodeActAgent",
+  "max_iterations": 100,
+  "llm_model": "${LLM_MODEL}",
+  "llm_api_key": "${LLM_API_KEY}",
+  "llm_base_url": "${LLM_BASE_URL}",
+  "v1_enabled": true,
+  "enable_default_condenser": true
+}
+SETTINGS_EOF
+ok "Nastavitve zapisane (${SETTINGS_FILE})"
 
 ok "LLM_MODEL=${LLM_MODEL}"
 ok "LLM_BASE_URL=${LLM_BASE_URL}"
