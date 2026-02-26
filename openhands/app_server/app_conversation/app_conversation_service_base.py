@@ -310,6 +310,15 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
         dir_name = request.selected_repository.split('/')[-1]
 
+        # Remove stale directory from a previous conversation so clone succeeds
+        rm_result = await workspace.execute_command(
+            f'rm -rf {dir_name}', workspace.working_dir
+        )
+        if rm_result.exit_code:
+            _logger.warning(
+                f'Failed to remove existing dir {dir_name}: {rm_result.stderr}'
+            )
+
         # Clone the repo - this is the slow part!
         clone_command = f'git clone {remote_repo_url} {dir_name}'
         result = await workspace.execute_command(
