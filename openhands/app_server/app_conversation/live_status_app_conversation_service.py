@@ -646,11 +646,23 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         if base_url:
             base_url = replace_localhost_for_docker_target(base_url)
 
+        # Respect LLM_NATIVE_TOOL_CALLING env var.
+        # Local models like qwen3-coder struggle with *native* function calling
+        # (tools sent via the API `tools` parameter).  When native FC is
+        # disabled the SDK instead injects tool definitions + in-context
+        # examples directly into the system prompt and parses the model's
+        # text output (e.g. <function=terminal>...) to extract tool calls.
+        # This "prompt-mocked" approach works far more reliably with small
+        # local models.
+        native_tc_raw = os.environ.get('LLM_NATIVE_TOOL_CALLING', 'true')
+        native_tool_calling = native_tc_raw.lower() not in ('false', '0', 'no', 'off')
+
         return LLM(
             model=model,
             base_url=base_url,
             api_key=user.llm_api_key,
             usage_id='agent',
+            native_tool_calling=native_tool_calling,
         )
 
     async def _get_tavily_api_key(self, user: UserInfo) -> str | None:

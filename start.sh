@@ -206,6 +206,21 @@ export OH_ENABLE_BROWSER=false
 # 5 tools: terminal, file_editor, task_tracker, finish, think.
 export OH_ENABLE_MCP=false
 
+# Disable native (API-parameter) tool calling.  With native FC the SDK
+# sends tools via the `tools` JSON parameter; qwen3-coder ignores this
+# and just outputs free text ("Thinking…") without ever invoking a tool.
+#
+# When native FC is OFF the SDK uses "prompt-mocked" tool calling:
+#   1. Tool schemas + in-context usage examples are injected directly
+#      into the system prompt as plain text.
+#   2. The model outputs text containing <function=terminal>…</function>
+#      tags (format it already understands from its training data).
+#   3. The SDK parses those tags back into structured tool calls.
+#
+# This prompt-based approach works reliably with local models that
+# cannot handle the OpenAI-style `tools` API parameter.
+export LLM_NATIVE_TOOL_CALLING=false
+
 # Write a fresh settings.json so the OpenHands server has the correct
 # LLM configuration from the very first request.  Without this file the
 # GET /api/settings endpoint returns 404, the frontend shows a blank
