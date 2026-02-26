@@ -654,19 +654,23 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         # text output (e.g. <function=terminal>...) to extract tool calls.
         # This "prompt-mocked" approach works far more reliably with small
         # local models.
+        llm_kwargs: dict[str, object] = {
+            'model': model,
+            'base_url': base_url,
+            'api_key': user.llm_api_key,
+            'usage_id': 'agent',
+        }
+
+        # Only pass native_tool_calling when the env var is explicitly set.
+        # The SDK field is `bool` (not Optional), so we must omit it entirely
+        # when unset to let the SDK use its own default / auto-detection.
         native_tc_raw = os.environ.get('LLM_NATIVE_TOOL_CALLING')
         if native_tc_raw is not None:
-            native_tool_calling: bool | None = native_tc_raw.lower() not in ('false', '0', 'no', 'off')
-        else:
-            native_tool_calling = None
+            llm_kwargs['native_tool_calling'] = (
+                native_tc_raw.lower() not in ('false', '0', 'no', 'off')
+            )
 
-        return LLM(
-            model=model,
-            base_url=base_url,
-            api_key=user.llm_api_key,
-            usage_id='agent',
-            native_tool_calling=native_tool_calling,
-        )
+        return LLM(**llm_kwargs)  # type: ignore[arg-type]
 
     async def _get_tavily_api_key(self, user: UserInfo) -> str | None:
         """Get Tavily search API key, prioritizing user's key over service key.
