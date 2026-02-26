@@ -132,7 +132,10 @@ fi
 info "Korak 5/6: Nastavljam LLM nastavitve za Ollama..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
 mkdir -p "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
-chmod 777 "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
+# Some dirs may be owned by root from previous Docker runs — use sudo as fallback
+for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"; do
+  chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
+done
 
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${OLLAMA_MODEL}"
