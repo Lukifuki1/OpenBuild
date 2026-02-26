@@ -1,4 +1,5 @@
 import logging
+import os
 from uuid import UUID
 
 from openhands.app_server.app_conversation.app_conversation_models import (
@@ -61,12 +62,16 @@ class SetTitleCallbackProcessor(EventCallbackProcessor):
             app_conversation_url = replace_localhost_hostname_for_docker(
                 app_conversation_url
             )
+            # Local LLMs (e.g. Ollama 30B) can be much slower than cloud APIs,
+            # so use a generous timeout for title generation.
+            title_timeout = int(os.environ.get('OH_TITLE_TIMEOUT', '120'))
             response = await httpx_client.post(
                 f'{app_conversation_url}/generate_title',
                 headers={
                     'X-Session-API-Key': app_conversation.session_api_key,
                 },
                 content='{}',
+                timeout=title_timeout,
             )
             response.raise_for_status()
             title = response.json()['title']
