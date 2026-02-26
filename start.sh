@@ -175,16 +175,20 @@ for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/b
   chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
 done
 
-# Use the ollama_chat/ provider prefix so litellm routes requests to
-# Ollama's /api/chat endpoint which supports function calling (tool calls).
-# The plain ollama/ prefix uses /api/generate which does NOT support
-# structured tool calls — the model returns arguments as plain strings
-# instead of JSON dicts, causing 'str' object has no attribute 'pop'
-# errors in the agent SDK.
-# The base URL points directly at Ollama (no /v1 suffix).
+# Use the openai/ provider prefix with Ollama's OpenAI-compatible endpoint.
+# Ollama exposes /v1/chat/completions which fully supports function calling
+# (tool calls) with properly structured JSON arguments.
+#
+# Why not ollama/ or ollama_chat/ ?
+#   - ollama/  → /api/generate  → no tool call support, returns string args
+#     causing 'str' object has no attribute 'pop' in the agent SDK
+#   - ollama_chat/ → /api/chat → model sends invalid function names
+#
+# The openai/ prefix + /v1 base URL is the standard, well-tested path in
+# litellm for any OpenAI-compatible server.
 export LLM_API_KEY="dummy"
-export LLM_MODEL="ollama_chat/${OLLAMA_MODEL}"
-export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}"
+export LLM_MODEL="openai/${OLLAMA_MODEL}"
+export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
 # Write a fresh settings.json so the OpenHands server has the correct
