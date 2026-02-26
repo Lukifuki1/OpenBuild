@@ -206,7 +206,7 @@ echo "  2. Klikni Settings (zobnik ikona)"
 echo "  3. Vklopi 'Advanced' stikalo"
 echo "  4. Nastavi:"
 echo -e "     ${BLUE}Custom Model:${NC}  openai/${OLLAMA_MODEL}"
-echo -e "     ${BLUE}Base URL:${NC}      http://localhost:11434/v1"
+echo -e "     ${BLUE}Base URL:${NC}      http://host.docker.internal:11434/v1"
 echo -e "     ${BLUE}API Key:${NC}       dummy"
 echo "  5. Shrani nastavitve"
 echo "============================================================"
@@ -220,4 +220,4 @@ echo "============================================================"
 echo ""
 
 # Zazeni OpenHands v foreground-u (CTRL+C za ustavitev)
-exec openhands serve --port "${OPENHANDS_PORT}"
+exec openhands serve

@@ -31,7 +31,7 @@ Skript bo:
 3. Vklopi **Advanced** stikalo
 4. Nastavi:
    - **Custom Model:** `openai/qwen3-coder:30b`
-   - **Base URL:** `http://localhost:11434/v1`
+   - **Base URL:** `http://host.docker.internal:11434/v1`
    - **API Key:** `dummy`
 5. Shrani nastavitve
 
