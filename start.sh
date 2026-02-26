@@ -45,7 +45,7 @@ case "${1:-}" in
     --clean)
         info "Cistim vse..."
         pkill -f "openhands serve" 2>/dev/null || true
-        docker stop openhands-app 2>/dev/null; docker rm openhands-app 2>/dev/null || true
+        docker stop openhands-app 2>/dev/null || true; docker rm openhands-app 2>/dev/null || true
         uv tool uninstall openhands 2>/dev/null || true
         rm -rf "${OPENHANDS_STATE_DIR}"
         ok "Vse pocisceno. Workspace (${WORKSPACE_DIR}) ni izbrisan — pobrisi ga rocno ce zelis."
@@ -188,7 +188,7 @@ ok "Workspace: ${WORKSPACE_DIR}"
 info "Korak 5/5: Zaganjam OpenHands..."
 
 # Ustavi stari Docker kontejner ce obstaja
-docker stop openhands-app 2>/dev/null; docker rm openhands-app 2>/dev/null || true
+docker stop openhands-app 2>/dev/null || true; docker rm openhands-app 2>/dev/null || true
 
 echo ""
 echo "============================================================"
