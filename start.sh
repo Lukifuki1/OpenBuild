@@ -18,64 +18,44 @@ warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 err()  { echo -e "${RED}[ERR]${NC}   $*"; }
 die()  { err "$*"; exit 1; }
 
+# ── Configuration ──────────────────────────────────────────────
 OPENHANDS_PORT=3000
 OLLAMA_PORT=11434
 OLLAMA_MODEL="qwen3-coder:30b"
 WORKSPACE_DIR="$HOME/workspace"
 OPENHANDS_CONFIG_DIR="$HOME/.openhands"
 
-# Ensure ~/.local/bin on PATH (pipx/poetry)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 export PATH="$HOME/.local/bin:$PATH"
 
-usage() {
-  cat <<EOF
-Uporaba:
-  ./start.sh            Namesti manjkajoce, konfigurira in zazene OpenHands (UI na :${OPENHANDS_PORT})
-  ./start.sh --stop     Ustavi OpenHands (uvicorn)
-  ./start.sh --clean    Pobrise lokalne build cache (.venv, frontend build/node_modules)
-EOF
+# ── Cleanup on exit ───────────────────────────────────────────
+cleanup() {
+  local code=$?
+  if [ $code -ne 0 ]; then
+    warn "start.sh koncal z napako (koda: $code)"
+  fi
 }
-
-case "${1:-}" in
-  --stop)
-    info "Ustavljam OpenHands (uvicorn)..."
-    pkill -f "uvicorn openhands.server.listen:app" 2>/dev/null || true
-    ok "Stop signal poslan (ce je bil proces najden)"
-    exit 0
-    ;;
-  --clean)
-    info "Cistim lokalne cache direktorije..."
-    rm -rf .venv 2>/dev/null || true
-    rm -rf frontend/node_modules 2>/dev/null || true
-    rm -rf frontend/build 2>/dev/null || true
-    ok "Pocisceno. (Workspace: ${WORKSPACE_DIR} ni izbrisan)"
-    exit 0
-    ;;
-  "")
-    ;;
-  *)
-    usage
-    exit 1
-    ;;
-esac
+trap cleanup EXIT
 
 echo ""
-echo "============================================================"
-echo "  OpenHands v1.3.0 — host-native setup (Docker samo za sandbox)"
-echo "============================================================"
+echo "============================================"
+echo "   OpenHands v1.3.0 — host-native setup"
+echo "============================================"
 echo ""
 
-# 1) Docker (sandbox/runtime)
+# ── Step 1: Docker ─────────────────────────────────────────────
 info "Korak 1/6: Preverjam Docker..."
 if ! command -v docker >/dev/null 2>&1; then
   die "Docker ni namescen. Namesti ga z: sudo apt-get update && sudo apt-get install -y docker.io"
 fi
 if ! docker info >/dev/null 2>&1; then
-  die "Docker daemon ne tece ali nimas pravic. Poskusi: sudo systemctl start docker; sudo usermod -aG docker $USER (nato logout/login)"
+  die "Docker daemon ne tece ali nimas pravic. Poskusi: sudo systemctl start docker; sudo usermod -aG docker \$USER (nato logout/login)"
 fi
 ok "Docker deluje"
 
-# 2) Ollama
+# ── Step 2: Ollama ─────────────────────────────────────────────
 info "Korak 2/6: Preverjam Ollama..."
 if ! command -v ollama >/dev/null 2>&1; then
   info "Ollama ni namescena. Namescam..."
@@ -90,17 +70,17 @@ if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
     die "Ollama server se ni zagnal. Zazeni rocno: ollama serve"
   fi
 fi
-ok "Ollama server tece"
+ok "Ollama server tece na portu ${OLLAMA_PORT}"
 
-if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "${OLLAMA_MODEL}"; then
-  info "Model ${OLLAMA_MODEL} ni najden. Prenasam..."
+if ! ollama list 2>/dev/null | awk '{print $1}' | grep -q "${OLLAMA_MODEL}"; then
+  info "Model ${OLLAMA_MODEL} ni najden. Prenasam (to lahko traja)..."
   ollama pull "${OLLAMA_MODEL}" || die "Neuspesno prenasanje modela ${OLLAMA_MODEL}"
   ok "Model ${OLLAMA_MODEL} prenesen"
 else
   ok "Model ${OLLAMA_MODEL} je ze prenesen"
 fi
 
-# 3) Node / build frontend
+# ── Step 3: Frontend ───────────────────────────────────────────
 info "Korak 3/6: Preverjam Node.js + gradim frontend..."
 if ! command -v npm >/dev/null 2>&1; then
   die "npm ni namescen. Namesti Node.js 22+ (npr. preko nvm)"
@@ -120,10 +100,10 @@ else
   ok "frontend: build ze obstaja"
 fi
 
-# 4) Poetry + Python deps
+# ── Step 4: Poetry + Python deps ──────────────────────────────
 info "Korak 4/6: Preverjam Poetry + Python odvisnosti..."
 if ! command -v python3.12 >/dev/null 2>&1; then
-  die "python3.12 ni najden. Na Ubuntu 24.04 je obicajno prisoten. Ce ni: sudo apt-get install -y python3.12 python3.12-venv"
+  die "python3.12 ni najden. Na Ubuntu 24.04: sudo apt-get install -y python3.12 python3.12-venv"
 fi
 
 if ! command -v pipx >/dev/null 2>&1; then
@@ -142,14 +122,14 @@ ok "Poetry: $(poetry --version 2>/dev/null || echo unknown)"
 export POETRY_VIRTUALENVS_IN_PROJECT=true
 
 if [ ! -d .venv ]; then
-  info "poetry install (prvic)..."
+  info "poetry install (prvic — traja nekaj minut)..."
   poetry install --no-interaction
 else
   ok "Python venv (.venv) ze obstaja"
 fi
 
-# 5) Konfiguracija (env vars)
-info "Korak 5/6: Nastavljam privzete LLM nastavitve za Ollama..."
+# ── Step 5: Environment ───────────────────────────────────────
+info "Korak 5/6: Nastavljam LLM nastavitve za Ollama..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
 
 export LLM_API_KEY="dummy"
@@ -161,15 +141,15 @@ ok "LLM_MODEL=${LLM_MODEL}"
 ok "LLM_BASE_URL=${LLM_BASE_URL}"
 ok "SANDBOX_VOLUMES=${SANDBOX_VOLUMES}"
 
-# 6) Run server
-info "Korak 6/6: Zaganjam OpenHands server (uvicorn) na port ${OPENHANDS_PORT}..."
+# ── Step 6: Launch ────────────────────────────────────────────
+info "Korak 6/6: Zaganjam OpenHands server (uvicorn) na portu ${OPENHANDS_PORT}..."
 echo ""
-echo "============================================================"
+echo "============================================"
 ok "UI: http://localhost:${OPENHANDS_PORT}"
-echo "============================================================"
+echo "============================================"
 echo ""
-echo "POMEMBNO: OpenHands tece na hostu. Docker se uporablja samo za sandbox/runtime."
-echo "Ustavi: CTRL+C (ali ./start.sh --stop)"
+echo "OpenHands tece na hostu. Docker se uporablja samo za sandbox/runtime."
+echo "Ustavi: CTRL+C"
 echo ""
 
 exec poetry run uvicorn openhands.server.listen:app --host 0.0.0.0 --port "${OPENHANDS_PORT}"
