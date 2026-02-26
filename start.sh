@@ -199,6 +199,13 @@ export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 # (3 tools), well within the model's limit.
 export OH_ENABLE_BROWSER=false
 
+# Also disable MCP tools (create_pr, create_mr, create_bitbucket_pr,
+# create_azure_devops_pr) which the default OpenHands MCP server adds.
+# These 4 extra tools push the total from 5 to 9, still above the ~5
+# threshold for qwen3-coder.  With MCP disabled the agent has exactly
+# 5 tools: terminal, file_editor, task_tracker, finish, think.
+export OH_ENABLE_MCP=false
+
 # Write a fresh settings.json so the OpenHands server has the correct
 # LLM configuration from the very first request.  Without this file the
 # GET /api/settings endpoint returns 404, the frontend shows a blank
