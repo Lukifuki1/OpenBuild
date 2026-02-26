@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 import tempfile
 from abc import ABC
 from dataclasses import dataclass
@@ -311,8 +312,9 @@ class AppConversationServiceBase(AppConversationService, ABC):
         dir_name = request.selected_repository.split('/')[-1]
 
         # Remove stale directory from a previous conversation so clone succeeds
+        safe_dir = shlex.quote(dir_name)
         rm_result = await workspace.execute_command(
-            f'rm -rf {dir_name}', workspace.working_dir
+            f'rm -rf {safe_dir}', workspace.working_dir
         )
         if rm_result.exit_code:
             _logger.warning(
@@ -320,7 +322,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
             )
 
         # Clone the repo - this is the slow part!
-        clone_command = f'git clone {remote_repo_url} {dir_name}'
+        clone_command = f'git clone {remote_repo_url} {safe_dir}'
         result = await workspace.execute_command(
             clone_command, workspace.working_dir, 120
         )
@@ -335,7 +337,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
             random_str = base62.encodebytes(os.urandom(16))
             openhands_workspace_branch = f'openhands-workspace-{random_str}'
             checkout_command = f'git checkout -b {openhands_workspace_branch}'
-        git_dir = Path(workspace.working_dir) / dir_name
+        git_dir = Path(workspace.working_dir) / dir_name  # Path is safe here (no shell)
         result = await workspace.execute_command(checkout_command, git_dir)
         if result.exit_code:
             _logger.warning(f'Git checkout failed: {result.stderr}')

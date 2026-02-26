@@ -15,7 +15,7 @@ class SPAStaticFiles(StaticFiles):
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # StaticFiles only handles HTTP — let WebSocket requests pass through
         # instead of hitting the assert scope["type"] == "http" assertion.
-        if scope["type"] != "http":
+        if scope['type'] != 'http':
             return
         await super().__call__(scope, receive, send)
 
