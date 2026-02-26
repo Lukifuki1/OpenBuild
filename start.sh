@@ -175,14 +175,15 @@ for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/b
   chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
 done
 
-# Use the native Ollama provider (ollama/) with the base URL pointing
-# directly at Ollama (no /v1 suffix).  The /v1 suffix is only for
-# OpenAI-compatible endpoints (/v1/chat/completions) which requires
-# the "openai/" model prefix.  Mixing ollama/ prefix with /v1 base URL
-# causes 404 errors (litellm sends POST /v1/api/generate which does
-# not exist on Ollama).
+# Use the ollama_chat/ provider prefix so litellm routes requests to
+# Ollama's /api/chat endpoint which supports function calling (tool calls).
+# The plain ollama/ prefix uses /api/generate which does NOT support
+# structured tool calls — the model returns arguments as plain strings
+# instead of JSON dicts, causing 'str' object has no attribute 'pop'
+# errors in the agent SDK.
+# The base URL points directly at Ollama (no /v1 suffix).
 export LLM_API_KEY="dummy"
-export LLM_MODEL="ollama/${OLLAMA_MODEL}"
+export LLM_MODEL="ollama_chat/${OLLAMA_MODEL}"
 export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
