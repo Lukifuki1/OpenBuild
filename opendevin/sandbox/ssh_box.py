@@ -150,6 +150,17 @@ class DockerSSHBox(Sandbox):
             workdir=SANDBOX_WORKSPACE_DIR,
         )
 
+        # Ensure the workspace directory is writable by the opendevin user
+        if RUN_AS_DEVIN:
+            exit_code, logs = self.container.exec_run(
+                ['/bin/bash', '-c',
+                 f'chown -R {USER_ID}:root {SANDBOX_WORKSPACE_DIR} && chmod -R 775 {SANDBOX_WORKSPACE_DIR}'],
+                workdir=SANDBOX_WORKSPACE_DIR,
+            )
+            if exit_code != 0:
+                logger.warning(
+                    f'Failed to set workspace permissions (non-fatal): {logs}')
+
     def start_ssh_session(self):
         # start ssh session at the background
         self.ssh = pxssh.pxssh()
