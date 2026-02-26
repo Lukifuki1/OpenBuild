@@ -75,6 +75,20 @@ async def get_litellm_models():
     return models
 
 
+@app.get('/api/defaults')
+async def get_defaults():
+    """
+    Get server-side default settings (from .env / config.toml).
+    Frontend uses these to pre-populate the settings modal.
+    """
+    from opendevin.schema import ConfigType
+    return {
+        'LLM_MODEL': config.get(ConfigType.LLM_MODEL) or 'gpt-3.5-turbo',
+        'AGENT': config.get(ConfigType.AGENT) or 'MonologueAgent',
+        'LANGUAGE': 'en',
+    }
+
+
 @app.get('/api/agents')
 async def get_agents():
     """

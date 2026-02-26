@@ -18,6 +18,15 @@ export async function fetchAgents() {
   return response.json();
 }
 
+export async function fetchDefaults(): Promise<Settings> {
+  try {
+    const response = await fetch(`/api/defaults`);
+    return response.json();
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 // all available settings in the frontend
 // TODO: add the values to i18n to support multi languages
 const DISPLAY_MAP: { [key: string]: string } = {
@@ -32,9 +41,27 @@ const DEFAULT_SETTINGS: Settings = {
   LANGUAGE: "en",
 };
 
+let serverDefaults: Settings | null = null;
+
+export async function loadServerDefaults(): Promise<void> {
+  try {
+    const response = await fetch(`/api/defaults`);
+    serverDefaults = await response.json();
+  } catch {
+    serverDefaults = null;
+  }
+}
+
+export function getServerDefault(key: string): string | undefined {
+  return serverDefaults?.[key];
+}
+
 const getSettingOrDefault = (key: string): string => {
   const value = localStorage.getItem(key);
-  return value || DEFAULT_SETTINGS[key];
+  if (value) return value;
+  // Prefer server-configured defaults (from .env) over hardcoded defaults
+  if (serverDefaults && serverDefaults[key]) return serverDefaults[key];
+  return DEFAULT_SETTINGS[key];
 };
 
 export const getCurrentSettings = (): Settings => ({

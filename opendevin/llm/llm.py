@@ -27,6 +27,12 @@ class LLM:
         self.api_key = api_key if api_key else DEFAULT_API_KEY
         self.base_url = base_url if base_url else DEFAULT_BASE_URL
 
+        # Auto-prefix ollama/ when base URL points to Ollama and model lacks a provider prefix
+        if (self.base_url and 'localhost:11434' in self.base_url
+                and self.model_name and '/' not in self.model_name):
+            self.model_name = f'ollama/{self.model_name}'
+            opendevin_logger.info(f'Auto-prefixed model to: {self.model_name}')
+
         self._completion = partial(
             litellm_completion, model=self.model_name, api_key=self.api_key, base_url=self.base_url)
 
