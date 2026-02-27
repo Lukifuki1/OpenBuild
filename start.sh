@@ -36,7 +36,7 @@ WORKSPACE_DIR="$HOME/workspace"
 OPENHANDS_PORT=3000
 
 # Ollama konfiguracija
-OLLAMA_MODEL="qwen3-coder:30b"
+OLLAMA_MODEL="qwen3.5:35b-agent"
 OLLAMA_HOST_URL="http://host.docker.internal:11434"
 # V OpenHands UI se model nastavi kot: openai/qwen3-coder:30b
 # Base URL: http://host.docker.internal:11434/v1
