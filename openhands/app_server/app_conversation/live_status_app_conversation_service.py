@@ -337,8 +337,27 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
 
         except Exception as exc:
             _logger.exception('Error starting conversation', stack_info=True)
+
+            # Provide more specific error messages based on the exception type
+            error_detail = str(exc)
+            if '500' in error_detail or 'Internal Server Error' in error_detail:
+                error_detail = (
+                    'Sandbox is not responding. Please try again or restart the sandbox. '
+                    f'Original error: {exc}'
+                )
+            elif 'RemoteProtocolError' in error_detail or 'Server disconnected' in error_detail:
+                error_detail = (
+                    'Sandbox connection was lost. Please try again or restart the sandbox. '
+                    f'Original error: {exc}'
+                )
+            elif 'Connection refused' in error_detail:
+                error_detail = (
+                    'Cannot connect to sandbox. Please ensure Docker is running and try again. '
+                    f'Original error: {exc}'
+                )
+
             task.status = AppConversationStartTaskStatus.ERROR
-            task.detail = str(exc)
+            task.detail = error_detail
             yield task
 
     async def _build_app_conversations(

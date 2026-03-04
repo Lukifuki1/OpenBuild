@@ -251,23 +251,29 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
             if user_info.git_user_name:
                 cmd = f'git config --global user.name "{user_info.git_user_name}"'
-                result = await workspace.execute_command(cmd, workspace.working_dir)
-                if result.exit_code:
-                    _logger.warning(f'Git config user.name failed: {result.stderr}')
-                else:
-                    _logger.info(
-                        f'Git configured with user.name={user_info.git_user_name}'
-                    )
+                try:
+                    result = await workspace.execute_command(cmd, workspace.working_dir)
+                    if result.exit_code:
+                        _logger.warning(f'Git config user.name failed: {result.stderr}')
+                    else:
+                        _logger.info(
+                            f'Git configured with user.name={user_info.git_user_name}'
+                        )
+                except Exception as e:
+                    _logger.warning(f'Git config user.name failed with exception: {e}')
 
             if user_info.git_user_email:
                 cmd = f'git config --global user.email "{user_info.git_user_email}"'
-                result = await workspace.execute_command(cmd, workspace.working_dir)
-                if result.exit_code:
-                    _logger.warning(f'Git config user.email failed: {result.stderr}')
-                else:
-                    _logger.info(
-                        f'Git configured with user.email={user_info.git_user_email}'
-                    )
+                try:
+                    result = await workspace.execute_command(cmd, workspace.working_dir)
+                    if result.exit_code:
+                        _logger.warning(f'Git config user.email failed: {result.stderr}')
+                    else:
+                        _logger.info(
+                            f'Git configured with user.email={user_info.git_user_email}'
+                        )
+                except Exception as e:
+                    _logger.warning(f'Git config user.email failed with exception: {e}')
         except Exception as e:
             _logger.warning(f'Failed to configure git user settings: {e}')
 
@@ -276,15 +282,33 @@ class AppConversationServiceBase(AppConversationService, ABC):
         task: AppConversationStartTask,
         workspace: AsyncRemoteWorkspace,
     ):
+        """Initialize or clone git repository in the workspace.
+
+        This method handles workspace setup including:
+        - Creating the working directory
+        - Configuring git user settings
+        - Cloning repositories or initializing new git repos
+
+        Args:
+            task: The start task containing repository configuration
+            workspace: The remote workspace to set up
+
+        Raises:
+            SandboxNotReadyError: If the sandbox is not ready for command execution
+        """
         request = task.request
 
         # Create the projects directory if it does not exist yet
         parent = Path(workspace.working_dir).parent
-        result = await workspace.execute_command(
-            f'mkdir {workspace.working_dir}', parent
-        )
-        if result.exit_code:
-            _logger.warning(f'mkdir failed: {result.stderr}')
+        try:
+            result = await workspace.execute_command(
+                f'mkdir {workspace.working_dir}', parent
+            )
+            if result.exit_code:
+                _logger.warning(f'mkdir failed: {result.stderr}')
+        except Exception as e:
+            _logger.warning(f'mkdir failed with exception: {e}')
+            # Continue anyway - the directory might already exist
 
         # Configure git user settings from user preferences
         await self._configure_git_user_settings(workspace)
@@ -296,9 +320,12 @@ class AppConversationServiceBase(AppConversationService, ABC):
                     'git init && git config --global '
                     f'--add safe.directory {workspace.working_dir}'
                 )
-                result = await workspace.execute_command(cmd, workspace.working_dir)
-                if result.exit_code:
-                    _logger.warning(f'Git init failed: {result.stderr}')
+                try:
+                    result = await workspace.execute_command(cmd, workspace.working_dir)
+                    if result.exit_code:
+                        _logger.warning(f'Git init failed: {result.stderr}')
+                except Exception as e:
+                    _logger.warning(f'Git init failed with exception: {e}')
             else:
                 _logger.info('Not initializing a new git repository.')
             return
@@ -313,21 +340,27 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
         # Remove stale directory from a previous conversation so clone succeeds
         safe_dir = shlex.quote(dir_name)
-        rm_result = await workspace.execute_command(
-            f'rm -rf {safe_dir}', workspace.working_dir
-        )
-        if rm_result.exit_code:
-            _logger.warning(
-                f'Failed to remove existing dir {dir_name}: {rm_result.stderr}'
+        try:
+            rm_result = await workspace.execute_command(
+                f'rm -rf {safe_dir}', workspace.working_dir
             )
+            if rm_result.exit_code:
+                _logger.warning(
+                    f'Failed to remove existing dir {dir_name}: {rm_result.stderr}'
+                )
+        except Exception as e:
+            _logger.warning(f'Failed to remove existing dir {dir_name}: {e}')
 
         # Clone the repo - this is the slow part!
         clone_command = f'git clone {remote_repo_url} {safe_dir}'
-        result = await workspace.execute_command(
-            clone_command, workspace.working_dir, 120
-        )
-        if result.exit_code:
-            _logger.warning(f'Git clone failed: {result.stderr}')
+        try:
+            result = await workspace.execute_command(
+                clone_command, workspace.working_dir, 120
+            )
+            if result.exit_code:
+                _logger.warning(f'Git clone failed: {result.stderr}')
+        except Exception as e:
+            _logger.warning(f'Git clone failed with exception: {e}')
 
         # Checkout the appropriate branch
         if request.selected_branch:
@@ -338,9 +371,12 @@ class AppConversationServiceBase(AppConversationService, ABC):
             openhands_workspace_branch = f'openhands-workspace-{random_str}'
             checkout_command = f'git checkout -b {openhands_workspace_branch}'
         git_dir = Path(workspace.working_dir) / dir_name  # Path is safe here (no shell)
-        result = await workspace.execute_command(checkout_command, git_dir)
-        if result.exit_code:
-            _logger.warning(f'Git checkout failed: {result.stderr}')
+        try:
+            result = await workspace.execute_command(checkout_command, git_dir)
+            if result.exit_code:
+                _logger.warning(f'Git checkout failed: {result.stderr}')
+        except Exception as e:
+            _logger.warning(f'Git checkout failed with exception: {e}')
 
     async def maybe_run_setup_script(
         self,
@@ -349,9 +385,12 @@ class AppConversationServiceBase(AppConversationService, ABC):
         """Run .openhands/setup.sh if it exists in the workspace or repository."""
         setup_script = workspace.working_dir + '/.openhands/setup.sh'
 
-        await workspace.execute_command(
-            f'chmod +x {setup_script} && source {setup_script}', timeout=600
-        )
+        try:
+            await workspace.execute_command(
+                f'chmod +x {setup_script} && source {setup_script}', timeout=600
+            )
+        except Exception as e:
+            _logger.warning(f'Setup script failed: {e}')
 
         # TODO: Does this need to be done?
         # Add the action to the event stream as an ENVIRONMENT event
@@ -364,8 +403,12 @@ class AppConversationServiceBase(AppConversationService, ABC):
     ):
         """Set up git hooks if .openhands/pre-commit.sh exists in the workspace or repository."""
         command = 'mkdir -p .git/hooks && chmod +x .openhands/pre-commit.sh'
-        result = await workspace.execute_command(command, workspace.working_dir)
-        if result.exit_code:
+        try:
+            result = await workspace.execute_command(command, workspace.working_dir)
+            if result.exit_code:
+                return
+        except Exception as e:
+            _logger.warning(f'Failed to setup git hooks: {e}')
             return
 
         # Check if there's an existing pre-commit hook
@@ -380,13 +423,17 @@ class AppConversationServiceBase(AppConversationService, ABC):
                         f'mv {PRE_COMMIT_HOOK} {PRE_COMMIT_LOCAL} &&'
                         f'chmod +x {PRE_COMMIT_LOCAL}'
                     )
-                    result = await workspace.execute_command(
-                        command, workspace.working_dir
-                    )
-                    if result.exit_code != 0:
-                        _logger.error(
-                            f'Failed to preserve existing pre-commit hook: {result.stderr}',
+                    try:
+                        result = await workspace.execute_command(
+                            command, workspace.working_dir
                         )
+                        if result.exit_code != 0:
+                            _logger.error(
+                                f'Failed to preserve existing pre-commit hook: {result.stderr}',
+                            )
+                            return
+                    except Exception as e:
+                        _logger.warning(f'Failed to preserve pre-commit hook: {e}')
                         return
 
         # write the pre-commit hook
