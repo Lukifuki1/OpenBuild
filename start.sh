@@ -135,10 +135,12 @@ done
 # LM Studio exposes /v1/chat/completions which fully supports function calling
 # (tool calls) with properly structured JSON arguments.
 # NOTE: Use host.docker.internal for Linux to reach LM Studio on host from Docker container
+# Add extra_hosts to Docker for Linux to resolve host.docker.internal
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${LMSTUDIO_MODEL}"
 export LLM_BASE_URL="http://host.docker.internal:${LMSTUDIO_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
+export OH_DOCKER_EXTRA_HOSTS="host.docker.internal:host-gateway"
 
 # Disable browser tools for local models.
 # Local models (like qwen3.5) cannot handle native function calling
