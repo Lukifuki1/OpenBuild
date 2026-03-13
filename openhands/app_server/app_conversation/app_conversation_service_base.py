@@ -1,6 +1,5 @@
 import logging
 import os
-import shlex
 import tempfile
 from abc import ABC
 from dataclasses import dataclass
@@ -48,6 +47,40 @@ PRE_COMMIT_HOOK = '.git/hooks/pre-commit'
 PRE_COMMIT_LOCAL = '.git/hooks/pre-commit.local'
 
 
+def get_project_dir(
+    working_dir: str,
+    selected_repository: str | None = None,
+) -> str:
+    """Get the project root directory for a conversation.
+
+    When a repository is selected, the project root is the cloned repo directory
+    at {working_dir}/{repo_name}.  This is the directory that contains the
+    `.openhands/` configuration (setup.sh, pre-commit.sh, skills/, etc.).
+
+    Without a repository, the project root is the working_dir itself.
+
+    This must be used consistently for ALL features that depend on the project root:
+    - workspace.working_dir (terminal CWD, file editor root, etc.)
+    - .openhands/setup.sh execution
+    - .openhands/pre-commit.sh (git hooks setup)
+    - .openhands/skills/ (project skills)
+    - PLAN.md path
+
+    Args:
+        working_dir: Base working directory path in the sandbox
+            (e.g., '/workspace/project' from sandbox_spec)
+        selected_repository: Repository name (e.g., 'OpenHands/software-agent-sdk')
+            If provided, the repo name is appended to working_dir.
+
+    Returns:
+        The project root directory path.
+    """
+    if selected_repository:
+        repo_name = selected_repository.split('/')[-1]
+        return f'{working_dir}/{repo_name}'
+    return working_dir
+
+
 @dataclass
 class AppConversationServiceBase(AppConversationService, ABC):
     """App Conversation service which adds git specific functionality.
@@ -62,7 +95,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
         self,
         sandbox: SandboxInfo,
         selected_repository: str | None,
-        working_dir: str,
+        project_dir: str,
         agent_server_url: str,
     ) -> list[Skill]:
         """Load skills from all sources via the agent-server.
@@ -78,7 +111,7 @@ class AppConversationServiceBase(AppConversationService, ABC):
         Args:
             sandbox: SandboxInfo containing exposed URLs and agent-server URL
             selected_repository: Repository name or None
-            working_dir: Working directory path
+            project_dir: Project root directory (resolved via get_project_dir).
             agent_server_url: Agent-server URL (required)
 
         Returns:
@@ -96,12 +129,6 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
             # Build sandbox config (exposed URLs)
             sandbox_config = build_sandbox_config(sandbox)
-
-            # Determine project directory for project skills
-            project_dir = working_dir
-            if selected_repository:
-                repo_name = selected_repository.split('/')[-1]
-                project_dir = f'{working_dir}/{repo_name}'
 
             # Single API call to agent-server for ALL skills
             all_skills = await load_skills_from_agent_server(
@@ -181,24 +208,25 @@ class AppConversationServiceBase(AppConversationService, ABC):
         agent: Agent,
         remote_workspace: AsyncRemoteWorkspace,
         selected_repository: str | None,
-        working_dir: str,
+        project_dir: str,
     ):
         """Load all skills and update agent with them.
 
         Args:
             agent: The agent to update
             remote_workspace: AsyncRemoteWorkspace for loading repo skills
-            selected_repository: Repository name or None
-            working_dir: Working directory path
+            selected_repository: Repository name or None (used for org config)
+            project_dir: Project root directory (already resolved via get_project_dir).
 
         Returns:
             Updated agent with skills loaded into context
         """
-        # Load and merge all skills
-        # Extract agent_server_url from remote_workspace host
         agent_server_url = remote_workspace.host
         all_skills = await self.load_and_merge_all_skills(
-            sandbox, selected_repository, working_dir, agent_server_url
+            sandbox,
+            selected_repository,
+            project_dir,
+            agent_server_url,
         )
 
         # Update agent with skills
@@ -217,20 +245,27 @@ class AppConversationServiceBase(AppConversationService, ABC):
         yield task
         await self.clone_or_init_git_repo(task, workspace)
 
+        # Compute the project root — the cloned repo directory when a repo is
+        # selected, or the sandbox working_dir otherwise.  This must be used
+        # for all .openhands/ features (setup.sh, pre-commit.sh, skills).
+        project_dir = get_project_dir(
+            workspace.working_dir, task.request.selected_repository
+        )
+
         task.status = AppConversationStartTaskStatus.RUNNING_SETUP_SCRIPT
         yield task
-        await self.maybe_run_setup_script(workspace)
+        await self.maybe_run_setup_script(workspace, project_dir)
 
         task.status = AppConversationStartTaskStatus.SETTING_UP_GIT_HOOKS
         yield task
-        await self.maybe_setup_git_hooks(workspace)
+        await self.maybe_setup_git_hooks(workspace, project_dir)
 
         task.status = AppConversationStartTaskStatus.SETTING_UP_SKILLS
         yield task
         await self.load_and_merge_all_skills(
             sandbox,
             task.request.selected_repository,
-            workspace.working_dir,
+            project_dir,
             agent_server_url,
         )
 
@@ -251,29 +286,23 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
             if user_info.git_user_name:
                 cmd = f'git config --global user.name "{user_info.git_user_name}"'
-                try:
-                    result = await workspace.execute_command(cmd, workspace.working_dir)
-                    if result.exit_code:
-                        _logger.warning(f'Git config user.name failed: {result.stderr}')
-                    else:
-                        _logger.info(
-                            f'Git configured with user.name={user_info.git_user_name}'
-                        )
-                except Exception as e:
-                    _logger.warning(f'Git config user.name failed with exception: {e}')
+                result = await workspace.execute_command(cmd, workspace.working_dir)
+                if result.exit_code:
+                    _logger.warning(f'Git config user.name failed: {result.stderr}')
+                else:
+                    _logger.info(
+                        f'Git configured with user.name={user_info.git_user_name}'
+                    )
 
             if user_info.git_user_email:
                 cmd = f'git config --global user.email "{user_info.git_user_email}"'
-                try:
-                    result = await workspace.execute_command(cmd, workspace.working_dir)
-                    if result.exit_code:
-                        _logger.warning(f'Git config user.email failed: {result.stderr}')
-                    else:
-                        _logger.info(
-                            f'Git configured with user.email={user_info.git_user_email}'
-                        )
-                except Exception as e:
-                    _logger.warning(f'Git config user.email failed with exception: {e}')
+                result = await workspace.execute_command(cmd, workspace.working_dir)
+                if result.exit_code:
+                    _logger.warning(f'Git config user.email failed: {result.stderr}')
+                else:
+                    _logger.info(
+                        f'Git configured with user.email={user_info.git_user_email}'
+                    )
         except Exception as e:
             _logger.warning(f'Failed to configure git user settings: {e}')
 
@@ -282,33 +311,15 @@ class AppConversationServiceBase(AppConversationService, ABC):
         task: AppConversationStartTask,
         workspace: AsyncRemoteWorkspace,
     ):
-        """Initialize or clone git repository in the workspace.
-
-        This method handles workspace setup including:
-        - Creating the working directory
-        - Configuring git user settings
-        - Cloning repositories or initializing new git repos
-
-        Args:
-            task: The start task containing repository configuration
-            workspace: The remote workspace to set up
-
-        Raises:
-            SandboxNotReadyError: If the sandbox is not ready for command execution
-        """
         request = task.request
 
         # Create the projects directory if it does not exist yet
         parent = Path(workspace.working_dir).parent
-        try:
-            result = await workspace.execute_command(
-                f'mkdir {workspace.working_dir}', parent
-            )
-            if result.exit_code:
-                _logger.warning(f'mkdir failed: {result.stderr}')
-        except Exception as e:
-            _logger.warning(f'mkdir failed with exception: {e}')
-            # Continue anyway - the directory might already exist
+        result = await workspace.execute_command(
+            f'mkdir {workspace.working_dir}', parent
+        )
+        if result.exit_code:
+            _logger.warning(f'mkdir failed: {result.stderr}')
 
         # Configure git user settings from user preferences
         await self._configure_git_user_settings(workspace)
@@ -320,12 +331,9 @@ class AppConversationServiceBase(AppConversationService, ABC):
                     'git init && git config --global '
                     f'--add safe.directory {workspace.working_dir}'
                 )
-                try:
-                    result = await workspace.execute_command(cmd, workspace.working_dir)
-                    if result.exit_code:
-                        _logger.warning(f'Git init failed: {result.stderr}')
-                except Exception as e:
-                    _logger.warning(f'Git init failed with exception: {e}')
+                result = await workspace.execute_command(cmd, workspace.working_dir)
+                if result.exit_code:
+                    _logger.warning(f'Git init failed: {result.stderr}')
             else:
                 _logger.info('Not initializing a new git repository.')
             return
@@ -338,29 +346,13 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
         dir_name = request.selected_repository.split('/')[-1]
 
-        # Remove stale directory from a previous conversation so clone succeeds
-        safe_dir = shlex.quote(dir_name)
-        try:
-            rm_result = await workspace.execute_command(
-                f'rm -rf {safe_dir}', workspace.working_dir
-            )
-            if rm_result.exit_code:
-                _logger.warning(
-                    f'Failed to remove existing dir {dir_name}: {rm_result.stderr}'
-                )
-        except Exception as e:
-            _logger.warning(f'Failed to remove existing dir {dir_name}: {e}')
-
         # Clone the repo - this is the slow part!
-        clone_command = f'git clone {remote_repo_url} {safe_dir}'
-        try:
-            result = await workspace.execute_command(
-                clone_command, workspace.working_dir, 120
-            )
-            if result.exit_code:
-                _logger.warning(f'Git clone failed: {result.stderr}')
-        except Exception as e:
-            _logger.warning(f'Git clone failed with exception: {e}')
+        clone_command = f'git clone {remote_repo_url} {dir_name}'
+        result = await workspace.execute_command(
+            clone_command, workspace.working_dir, 120
+        )
+        if result.exit_code:
+            _logger.warning(f'Git clone failed: {result.stderr}')
 
         # Checkout the appropriate branch
         if request.selected_branch:
@@ -370,45 +362,44 @@ class AppConversationServiceBase(AppConversationService, ABC):
             random_str = base62.encodebytes(os.urandom(16))
             openhands_workspace_branch = f'openhands-workspace-{random_str}'
             checkout_command = f'git checkout -b {openhands_workspace_branch}'
-        git_dir = Path(workspace.working_dir) / dir_name  # Path is safe here (no shell)
-        try:
-            result = await workspace.execute_command(checkout_command, git_dir)
-            if result.exit_code:
-                _logger.warning(f'Git checkout failed: {result.stderr}')
-        except Exception as e:
-            _logger.warning(f'Git checkout failed with exception: {e}')
+        git_dir = Path(workspace.working_dir) / dir_name
+        result = await workspace.execute_command(checkout_command, git_dir)
+        if result.exit_code:
+            _logger.warning(f'Git checkout failed: {result.stderr}')
 
     async def maybe_run_setup_script(
         self,
         workspace: AsyncRemoteWorkspace,
+        project_dir: str,
     ):
-        """Run .openhands/setup.sh if it exists in the workspace or repository."""
-        setup_script = workspace.working_dir + '/.openhands/setup.sh'
+        """Run .openhands/setup.sh if it exists in the project root.
 
-        try:
-            await workspace.execute_command(
-                f'chmod +x {setup_script} && source {setup_script}', timeout=600
-            )
-        except Exception as e:
-            _logger.warning(f'Setup script failed: {e}')
+        Args:
+            workspace: Remote workspace for command execution.
+            project_dir: Project root directory (repo root when a repo is selected).
+        """
+        setup_script = project_dir + '/.openhands/setup.sh'
 
-        # TODO: Does this need to be done?
-        # Add the action to the event stream as an ENVIRONMENT event
-        # source = EventSource.ENVIRONMENT
-        # self.event_stream.add_event(action, source)
+        await workspace.execute_command(
+            f'chmod +x {setup_script} && source {setup_script}',
+            cwd=project_dir,
+            timeout=600,
+        )
 
     async def maybe_setup_git_hooks(
         self,
         workspace: AsyncRemoteWorkspace,
+        project_dir: str,
     ):
-        """Set up git hooks if .openhands/pre-commit.sh exists in the workspace or repository."""
+        """Set up git hooks if .openhands/pre-commit.sh exists in the project root.
+
+        Args:
+            workspace: Remote workspace for command execution.
+            project_dir: Project root directory (repo root when a repo is selected).
+        """
         command = 'mkdir -p .git/hooks && chmod +x .openhands/pre-commit.sh'
-        try:
-            result = await workspace.execute_command(command, workspace.working_dir)
-            if result.exit_code:
-                return
-        except Exception as e:
-            _logger.warning(f'Failed to setup git hooks: {e}')
+        result = await workspace.execute_command(command, project_dir)
+        if result.exit_code:
             return
 
         # Check if there's an existing pre-commit hook
@@ -423,17 +414,11 @@ class AppConversationServiceBase(AppConversationService, ABC):
                         f'mv {PRE_COMMIT_HOOK} {PRE_COMMIT_LOCAL} &&'
                         f'chmod +x {PRE_COMMIT_LOCAL}'
                     )
-                    try:
-                        result = await workspace.execute_command(
-                            command, workspace.working_dir
+                    result = await workspace.execute_command(command, project_dir)
+                    if result.exit_code != 0:
+                        _logger.error(
+                            f'Failed to preserve existing pre-commit hook: {result.stderr}',
                         )
-                        if result.exit_code != 0:
-                            _logger.error(
-                                f'Failed to preserve existing pre-commit hook: {result.stderr}',
-                            )
-                            return
-                    except Exception as e:
-                        _logger.warning(f'Failed to preserve pre-commit hook: {e}')
                         return
 
         # write the pre-commit hook

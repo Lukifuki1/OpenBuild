@@ -162,7 +162,7 @@ class DockerSandboxService(SandboxService):
                         ExposedUrl(
                             name=exposed_port.name,
                             url=url,
-                            port=host_port,
+                            port=exposed_port.container_port,
                         )
                     )
             else:
@@ -193,7 +193,7 @@ class DockerSandboxService(SandboxService):
                                     ExposedUrl(
                                         name=matching_port.name,
                                         url=url,
-                                        port=host_port,
+                                        port=matching_port.container_port,
                                     )
                                 )
 
@@ -230,7 +230,7 @@ class DockerSandboxService(SandboxService):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                # If the server is
+                # If the server has exceeded the startup grace period, it's an error
                 if sandbox_info.created_at < utc_now() - timedelta(
                     seconds=self.startup_grace_seconds
                 ):
@@ -239,6 +239,10 @@ class DockerSandboxService(SandboxService):
                     )
                     sandbox_info.status = SandboxStatus.ERROR
                 else:
+                    _logger.debug(
+                        f'Sandbox server not yet available (still starting): '
+                        f'{app_server_url} : {exc}'
+                    )
                     sandbox_info.status = SandboxStatus.STARTING
                 sandbox_info.exposed_urls = None
                 sandbox_info.session_api_key = None
@@ -383,7 +387,7 @@ class DockerSandboxService(SandboxService):
             for exposed_port in self.exposed_ports:
                 host_port = self._find_unused_port()
                 port_mappings[exposed_port.container_port] = host_port
-                env_vars[exposed_port.name] = str(host_port)
+                env_vars[exposed_port.name] = str(exposed_port.container_port)
 
         # Prepare labels
         labels = {
@@ -497,75 +501,6 @@ class DockerSandboxService(SandboxService):
             return True
         except (NotFound, APIError):
             return False
-
-    async def pause_old_sandboxes(self, max_num_sandboxes: int) -> list[str]:
-        """Override to DELETE old sandboxes instead of just pausing them.
-
-        On a local host-native setup Docker containers accumulate if they are
-        only paused.  This override stops and removes (deletes) the oldest
-        running containers when the limit is exceeded **and** removes any
-        already-stopped / exited containers so they do not pile up.
-        """
-        # First, clean up any stopped / exited containers so they don't accumulate
-        await self._cleanup_stopped_containers()
-
-        if max_num_sandboxes <= 0:
-            raise ValueError('max_num_sandboxes must be greater than 0')
-
-        # Collect running sandboxes by iterating through all pages
-        running_sandboxes: list[SandboxInfo] = []
-        page_id: str | None = None
-        while True:
-            page = await self.search_sandboxes(page_id=page_id, limit=100)
-            for sandbox in page.items:
-                if sandbox.status == SandboxStatus.RUNNING:
-                    running_sandboxes.append(sandbox)
-            if page.next_page_id is None:
-                break
-            page_id = page.next_page_id
-
-        if len(running_sandboxes) <= max_num_sandboxes:
-            return []
-
-        # Sort oldest-first and delete the excess
-        running_sandboxes.sort(key=lambda s: s.created_at)
-        num_to_delete = len(running_sandboxes) - max_num_sandboxes
-        deleted_ids: list[str] = []
-        for sandbox in running_sandboxes[:num_to_delete]:
-            try:
-                if await self.delete_sandbox(sandbox.id):
-                    deleted_ids.append(sandbox.id)
-                    _logger.info(f'Auto-deleted old sandbox {sandbox.id}')
-            except Exception:
-                _logger.warning(
-                    f'Failed to auto-delete sandbox {sandbox.id}', exc_info=True
-                )
-        return deleted_ids
-
-    async def _cleanup_stopped_containers(self) -> None:
-        """Remove all stopped / exited / dead containers with our prefix.
-
-        This prevents Docker containers from accumulating on the host after
-        conversations end.
-        """
-        try:
-            all_containers = self.docker_client.containers.list(all=True)
-            for container in all_containers:
-                if not (
-                    container.name
-                    and container.name.startswith(self.container_name_prefix)
-                ):
-                    continue
-                if container.status in ('exited', 'dead', 'created'):
-                    try:
-                        container.remove(force=True)
-                        _logger.info(
-                            f'Cleaned up stopped container {container.name}'
-                        )
-                    except (NotFound, APIError):
-                        pass
-        except APIError:
-            _logger.warning('Failed to list containers for cleanup', exc_info=True)
 
 
 class DockerSandboxServiceInjector(SandboxServiceInjector):
