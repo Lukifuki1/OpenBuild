@@ -74,22 +74,17 @@ if ! command -v npm >/dev/null 2>&1; then
   die "npm ni namescen. Namesti Node.js 22+ (npr. preko nvm)"
 fi
 
-if [ ! -d frontend/node_modules ]; then
-  info "frontend: npm install..."
-  (cd frontend && npm install)
-else
-  ok "frontend: node_modules ze obstaja"
-fi
+# Always reinstall node_modules to ensure fresh dependencies
+info "frontend: npm install (clean install)..."
+(cd frontend && rm -rf node_modules && npm install)
 
 # Always rebuild the frontend from a clean state.
 # The i18n locale files (public/locales/) are generated at build time by
 # make-i18n and are git-ignored.  If we skip the build or reuse a stale
 # build/ directory, the UI shows raw translation keys (e.g. SETTINGS$TITLE)
 # instead of human-readable text.
-if [ -d frontend/build ]; then
-  info "frontend: cistim star build/ ..."
-  rm -rf frontend/build
-fi
+info "frontend: cistim star build/ ..."
+rm -rf frontend/build
 info "frontend: npm run build..."
 (cd frontend && npm run build)
 
