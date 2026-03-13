@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# OpenHands v1.3.0 (source) — host-native run
+# OpenHands v1.5.0 (source) — host-native run
 # - UI port: 3000
 # - Ollama port: 11434
 # - Docker used only for sandbox/runtime containers
@@ -41,7 +41,7 @@ trap cleanup EXIT
 
 echo ""
 echo "============================================"
-echo "   OpenHands v1.3.0 — host-native setup"
+echo "   OpenHands v1.5.0 — host-native setup"
 echo "============================================"
 echo ""
 
