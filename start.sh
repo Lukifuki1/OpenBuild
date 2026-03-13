@@ -47,6 +47,12 @@ echo ""
 
 # ── Step 1: Docker ─────────────────────────────────────────────
 info "Korak 1/6: Preverjam Docker..."
+
+# Clean up old OpenHands containers
+info "Cistim stare OpenHands containerje..."
+docker ps -a --filter "name=oh-agent-server" -q | xargs -r docker rm -f 2>/dev/null || true
+ok "Stari containerji ocisceni"
+
 if ! command -v docker >/dev/null 2>&1; then
   die "Docker ni namescen. Namesti ga z: sudo apt-get update && sudo apt-get install -y docker.io"
 fi
