@@ -3,7 +3,7 @@ set -euo pipefail
 
 # OpenHands v1.5.0 (source) — host-native run
 # - UI port: 3000
-# - Ollama port: 11434
+# - LM Studio port: 1234
 # - Docker used only for sandbox/runtime containers
 
 RED='\033[0;31m'
@@ -20,8 +20,8 @@ die()  { err "$*"; exit 1; }
 
 # ── Configuration ──────────────────────────────────────────────
 OPENHANDS_PORT=3000
-OLLAMA_PORT=11434
-OLLAMA_MODEL="qwen3-coder:30b"
+LMSTUDIO_PORT=1234
+LMSTUDIO_MODEL="qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive"
 WORKSPACE_DIR="$HOME/workspace"
 OPENHANDS_CONFIG_DIR="$HOME/.openhands"
 
@@ -55,57 +55,18 @@ if ! docker info >/dev/null 2>&1; then
 fi
 ok "Docker deluje"
 
-# ── Step 2: Ollama ─────────────────────────────────────────────
-info "Korak 2/6: Preverjam Ollama..."
-if ! command -v ollama >/dev/null 2>&1; then
-  info "Ollama ni namescena. Namescam..."
-  curl -fsSL https://ollama.com/install.sh | sh || die "Ollama namestitev neuspesna"
-fi
+# ── Step 2: LM Studio ────────────────────────────────────────────
+info "Korak 2/6: Preverjam LM Studio..."
 
-# Ollama must listen on 0.0.0.0 (all interfaces) so that Docker sandbox
-# containers can reach it via host.docker.internal.  By default Ollama
-# only binds to 127.0.0.1 which is unreachable from Docker bridge
-# networks, causing "Connection refused" errors in the agent.
-export OLLAMA_HOST="0.0.0.0:${OLLAMA_PORT}"
-
-# Check if Ollama is already running and reachable
-OLLAMA_RUNNING=false
-if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-  OLLAMA_RUNNING=true
+# LM Studio must be running with OpenAI-compatible server enabled
+# Check if LM Studio API is accessible
+if ! curl -sf "http://localhost:${LMSTUDIO_PORT}/v1/models" >/dev/null 2>&1; then
+  die "LM Studio server ne tece na portu ${LMSTUDIO_PORT}. Zagnaj LM Studio in omogoci 'Enable API' (v Settings > App > Advanced)."
 fi
+ok "LM Studio server tece na portu ${LMSTUDIO_PORT}"
 
-# If Ollama is running, check whether it is listening on 0.0.0.0.
-# If it only listens on 127.0.0.1 we must restart it so Docker
-# containers can connect.
-if $OLLAMA_RUNNING; then
-  if ! ss -tlnp 2>/dev/null | grep ":${OLLAMA_PORT}" | grep -q '0\.0\.0\.0'; then
-    warn "Ollama poslusa samo na 127.0.0.1. Ponovno zaganjam na 0.0.0.0..."
-    # Try to stop the existing Ollama gracefully
-    pkill -f 'ollama serve' 2>/dev/null || true
-    sleep 2
-    OLLAMA_RUNNING=false
-  fi
-fi
-
-if ! $OLLAMA_RUNNING; then
-  warn "Ollama server ne tece (ali ni na 0.0.0.0). Zaganjam (background)..."
-  # Use setsid to fully detach Ollama from this shell session so Ctrl+C
-  # (which stops OpenHands) does NOT kill Ollama.
-  setsid ollama serve </dev/null >/dev/null 2>&1 &
-  sleep 3
-  if ! curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-    die "Ollama server se ni zagnal. Zazeni rocno: OLLAMA_HOST=0.0.0.0 ollama serve"
-  fi
-fi
-ok "Ollama server tece na portu ${OLLAMA_PORT} (0.0.0.0)"
-
-if ! ollama list 2>/dev/null | awk '{print $1}' | grep -q "${OLLAMA_MODEL}"; then
-  info "Model ${OLLAMA_MODEL} ni najden. Prenasam (to lahko traja)..."
-  ollama pull "${OLLAMA_MODEL}" || die "Neuspesno prenasanje modela ${OLLAMA_MODEL}"
-  ok "Model ${OLLAMA_MODEL} prenesen"
-else
-  ok "Model ${OLLAMA_MODEL} je ze prenesen"
-fi
+# Note: We don't check/load models here - LM Studio handles that independently
+# Just verify the server is running and will accept connections
 
 # ── Step 3: Frontend ───────────────────────────────────────────
 info "Korak 3/6: Preverjam Node.js + gradim frontend..."
@@ -167,7 +128,7 @@ else
 fi
 
 # ── Step 5: Environment ───────────────────────────────────────
-info "Korak 5/6: Nastavljam LLM nastavitve za Ollama..."
+info "Korak 5/6: Nastavljam LLM nastavitve za LM Studio..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
 mkdir -p "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
 # Some dirs may be owned by root from previous Docker runs — use sudo as fallback
@@ -175,24 +136,16 @@ for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/b
   chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
 done
 
-# Use the openai/ provider prefix with Ollama's OpenAI-compatible endpoint.
-# Ollama exposes /v1/chat/completions which fully supports function calling
+# Use the openai/ provider prefix with LM Studio's OpenAI-compatible endpoint.
+# LM Studio exposes /v1/chat/completions which fully supports function calling
 # (tool calls) with properly structured JSON arguments.
-#
-# Why not ollama/ or ollama_chat/ ?
-#   - ollama/  → /api/generate  → no tool call support, returns string args
-#     causing 'str' object has no attribute 'pop' in the agent SDK
-#   - ollama_chat/ → /api/chat → model sends invalid function names
-#
-# The openai/ prefix + /v1 base URL is the standard, well-tested path in
-# litellm for any OpenAI-compatible server.
 export LLM_API_KEY="dummy"
-export LLM_MODEL="openai/${OLLAMA_MODEL}"
-export LLM_BASE_URL="http://localhost:${OLLAMA_PORT}/v1"
+export LLM_MODEL="openai/${LMSTUDIO_MODEL}"
+export LLM_BASE_URL="http://localhost:${LMSTUDIO_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
-# Disable browser tools for local Ollama models.
-# qwen3-coder (and similar local models) cannot handle native function calling
+# Disable browser tools for local models.
+# Local models (like qwen3.5) cannot handle native function calling
 # when the tool count exceeds ~5.  The default tool set includes ~13 browser
 # sub-tools (navigate, click, type, scroll, …) which pushes the total to 19.
 # With browser disabled the agent keeps terminal + file_editor + task_tracker
@@ -202,13 +155,13 @@ export OH_ENABLE_BROWSER=false
 # Also disable MCP tools (create_pr, create_mr, create_bitbucket_pr,
 # create_azure_devops_pr) which the default OpenHands MCP server adds.
 # These 4 extra tools push the total from 5 to 9, still above the ~5
-# threshold for qwen3-coder.  With MCP disabled the agent has exactly
+# threshold for local models.  With MCP disabled the agent has exactly
 # 5 tools: terminal, file_editor, task_tracker, finish, think.
 export OH_ENABLE_MCP=false
 
 # Disable native (API-parameter) tool calling.  With native FC the SDK
-# sends tools via the `tools` JSON parameter; qwen3-coder ignores this
-# and just outputs free text ("Thinking…") without ever invoking a tool.
+# sends tools via the `tools` JSON parameter; local models may ignore this
+# and just output free text ("Thinking…") without ever invoking a tool.
 #
 # When native FC is OFF the SDK uses "prompt-mocked" tool calling:
 #   1. Tool schemas + in-context usage examples are injected directly
