@@ -315,11 +315,16 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
         # Create the projects directory if it does not exist yet
         parent = Path(workspace.working_dir).parent
-        result = await workspace.execute_command(
-            f'mkdir {workspace.working_dir}', parent
-        )
-        if result.exit_code:
-            _logger.warning(f'mkdir failed: {result.stderr}')
+        check_cmd = f'ls -la {workspace.working_dir}'
+        check_result = await workspace.execute_command(check_cmd, parent, 10)
+        
+        if check_result.exit_code != 0:
+            # Directory doesn't exist, create it
+            result = await workspace.execute_command(
+                f'mkdir -p {workspace.working_dir}', parent
+            )
+            if result.exit_code:
+                _logger.warning(f'mkdir failed: {result.stderr}')
 
         # Configure git user settings from user preferences
         await self._configure_git_user_settings(workspace)
@@ -346,13 +351,22 @@ class AppConversationServiceBase(AppConversationService, ABC):
 
         dir_name = request.selected_repository.split('/')[-1]
 
-        # Clone the repo - this is the slow part!
-        clone_command = f'git clone {remote_repo_url} {dir_name}'
-        result = await workspace.execute_command(
-            clone_command, workspace.working_dir, 120
+        # Check if directory already exists - if so, use it instead of cloning
+        check_dir_command = f'ls -la {dir_name}'
+        check_result = await workspace.execute_command(
+            check_dir_command, workspace.working_dir, 30
         )
-        if result.exit_code:
-            _logger.warning(f'Git clone failed: {result.stderr}')
+        
+        if check_result.exit_code == 0 and dir_name in check_result.stdout:
+            _logger.info(f'Repository {dir_name} already exists, skipping clone')
+        else:
+            # Clone the repo - this is the slow part!
+            clone_command = f'git clone {remote_repo_url} {dir_name}'
+            result = await workspace.execute_command(
+                clone_command, workspace.working_dir, 120
+            )
+            if result.exit_code:
+                _logger.warning(f'Git clone failed: {result.stderr}')
 
         # Checkout the appropriate branch
         if request.selected_branch:
