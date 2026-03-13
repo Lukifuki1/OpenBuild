@@ -15,7 +15,7 @@ class HttpxClientInjector(BaseModel, Injector[httpx.AsyncClient]):
     context of server requests handshakes are minimized while connection pool leaks
     are prevented."""
 
-    timeout: int = Field(default=60, description='Default timeout on all http requests')
+    timeout: int = Field(default=15, description='Default timeout on all http requests')
 
     async def inject(
         self, state: InjectorState, request: Request | None = None
