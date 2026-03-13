@@ -134,9 +134,10 @@ done
 # Use the openai/ provider prefix with LM Studio's OpenAI-compatible endpoint.
 # LM Studio exposes /v1/chat/completions which fully supports function calling
 # (tool calls) with properly structured JSON arguments.
+# NOTE: Use host.docker.internal for Linux to reach LM Studio on host from Docker container
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${LMSTUDIO_MODEL}"
-export LLM_BASE_URL="http://localhost:${LMSTUDIO_PORT}/v1"
+export LLM_BASE_URL="http://host.docker.internal:${LMSTUDIO_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
 
 # Disable browser tools for local models.
@@ -181,9 +182,9 @@ cat > "${SETTINGS_FILE}" <<SETTINGS_EOF
   "language": "en",
   "agent": "CodeActAgent",
   "max_iterations": 100,
-  "llm_model": "${LLM_MODEL}",
-  "llm_api_key": "${LLM_API_KEY}",
-  "llm_base_url": "${LLM_BASE_URL}",
+  "llm_model": "openai/${LMSTUDIO_MODEL}",
+  "llm_api_key": "dummy",
+  "llm_base_url": "http://host.docker.internal:${LMSTUDIO_PORT}/v1",
   "v1_enabled": true,
   "enable_default_condenser": true
 }
