@@ -47,12 +47,6 @@ echo ""
 
 # ── Step 1: Docker ─────────────────────────────────────────────
 info "Korak 1/6: Preverjam Docker..."
-
-# Clean up old OpenHands containers
-info "Cistim stare OpenHands containerje..."
-docker ps -a --filter "name=oh-agent-server" -q | xargs -r docker rm -f 2>/dev/null || true
-ok "Stari containerji ocisceni"
-
 if ! command -v docker >/dev/null 2>&1; then
   die "Docker ni namescen. Namesti ga z: sudo apt-get update && sudo apt-get install -y docker.io"
 fi
@@ -138,16 +132,12 @@ for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/b
 done
 
 # Use the openai/ provider prefix with LM Studio's OpenAI-compatible endpoint.
-# LM Studio exposes /v1/chat/completions which fully supports function calling
-# (tool calls) with properly structured JSON arguments.
-# NOTE: LM Studio runs on host at 192.168.0.24:1234
-# Docker container needs to reach LM Studio on host network
+# LM Studio runs on host at 192.168.0.24:1234
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${LMSTUDIO_MODEL}"
 export LLM_BASE_URL="http://192.168.0.24:${LMSTUDIO_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
-# Use host network mode so container can access host network resources
-export OH_USE_HOST_NETWORK=true
+export OH_DOCKER_EXTRA_HOSTS="host.docker.internal:host-gateway"
 
 # Disable browser tools for local models.
 # Local models (like qwen3.5) cannot handle native function calling
@@ -195,10 +185,7 @@ cat > "${SETTINGS_FILE}" <<SETTINGS_EOF
   "llm_api_key": "dummy",
   "llm_base_url": "http://192.168.0.24:${LMSTUDIO_PORT}/v1",
   "v1_enabled": true,
-  "enable_default_condenser": true,
-  "sandbox": {
-    "use_host_network": true
-  }
+  "enable_default_condenser": true
 }
 SETTINGS_EOF
 ok "Nastavitve zapisane (${SETTINGS_FILE})"
