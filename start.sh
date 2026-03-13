@@ -140,14 +140,13 @@ done
 # Use the openai/ provider prefix with LM Studio's OpenAI-compatible endpoint.
 # LM Studio exposes /v1/chat/completions which fully supports function calling
 # (tool calls) with properly structured JSON arguments.
-# NOTE: Use host.docker.internal for Linux to reach LM Studio on host from Docker container
-# Add extra_hosts to Docker for Linux to resolve host.docker.internal
+# NOTE: LM Studio runs on host at 192.168.0.24:1234
+# Docker container needs to reach LM Studio on host network
 export LLM_API_KEY="dummy"
 export LLM_MODEL="openai/${LMSTUDIO_MODEL}"
-export LLM_BASE_URL="http://host.docker.internal:${LMSTUDIO_PORT}/v1"
+export LLM_BASE_URL="http://192.168.0.24:${LMSTUDIO_PORT}/v1"
 export SANDBOX_VOLUMES="${WORKSPACE_DIR}:/workspace:rw"
-export OH_DOCKER_EXTRA_HOSTS="host.docker.internal:host-gateway"
-# Use host network to access LM Studio on host from Docker (Linux fix)
+# Use host network mode so container can access host network resources
 export OH_USE_HOST_NETWORK=true
 
 # Disable browser tools for local models.
@@ -194,7 +193,7 @@ cat > "${SETTINGS_FILE}" <<SETTINGS_EOF
   "max_iterations": 100,
   "llm_model": "openai/${LMSTUDIO_MODEL}",
   "llm_api_key": "dummy",
-  "llm_base_url": "http://host.docker.internal:${LMSTUDIO_PORT}/v1",
+  "llm_base_url": "http://192.168.0.24:${LMSTUDIO_PORT}/v1",
   "v1_enabled": true,
   "enable_default_condenser": true,
   "sandbox": {
