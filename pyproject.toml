@@ -105,6 +105,14 @@ dependencies = [
   "zope-interface==7.2",
 ]
 
+# Optional dependencies for image and video generation
+optional-dependencies.generation = [
+  "diffusers>=0.31.0",
+  "transformers>=4.46.0",
+  "accelerate>=0.34.0",
+  "opencv-python>=4.10.0",
+]
+
 optional-dependencies.third_party_runtimes = [
   "daytona==0.24.2",
   "e2b-code-interpreter>=2",

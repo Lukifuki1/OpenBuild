@@ -7247,7 +7247,7 @@
     "es": "Actualmente no hay un plan para este repositorio",
     "tr": "Şu anda bu depo için bir plan yok"
   },
-    "SIDEBAR$NAVIGATION_LABEL": {
+  "SIDEBAR$NAVIGATION_LABEL": {
     "en": "Sidebar navigation",
     "zh-CN": "侧边栏导航",
     "zh-TW": "側邊欄導航",
@@ -9183,7 +9183,6 @@
     "de": "Abonnement kündigen",
     "uk": "Скасувати підписку"
   },
-
   "PAYMENT$SUBSCRIPTION_CANCELLED": {
     "en": "Subscription cancelled successfully",
     "ja": "サブスクリプションが正常にキャンセルされました",
@@ -9200,7 +9199,6 @@
     "de": "Abonnement erfolgreich gekündigt",
     "uk": "Підписку успішно скасовано"
   },
-
   "PAYMENT$NEXT_BILLING_DATE": {
     "en": "Next billing date: {{date}}",
     "ja": "次回請求日: {{date}}",
@@ -10385,7 +10383,7 @@
     "de": "klicken Sie hier für Anweisungen",
     "uk": "натисніть тут, щоб отримати інструкції"
   },
-    "BITBUCKET_DATA_CENTER$TOKEN_LABEL": {
+  "BITBUCKET_DATA_CENTER$TOKEN_LABEL": {
     "en": "Bitbucket Data Center Token",
     "ja": "Bitbucket Data Centerトークン",
     "zh-CN": "Bitbucket Data Center令牌",
@@ -11633,7 +11631,6 @@
     "tr": "Git sağlayıcısını bağla",
     "uk": "Підключити постачальник Git"
   },
-
   "TASKS$NO_GIT_PROVIDERS_DESCRIPTION": {
     "en": "Connect a Git provider to see suggested tasks from your repositories.",
     "ja": "Gitプロバイダーを接続して、リポジトリからの提案タスクを表示します。",
@@ -11650,7 +11647,6 @@
     "tr": "Depolarınızdan önerilen görevleri görmek için bir Git sağlayıcısı bağlayın.",
     "uk": "Підключіть постачальник Git, щоб бачити запропоновані завдання з ваших репозиторіїв."
   },
-
   "TASKS$NO_GIT_PROVIDERS_CTA": {
     "en": "Go to Integrations",
     "ja": "統合へ移動",
@@ -16754,5 +16750,90 @@
     "es": "Finalizar",
     "tr": "Bitir",
     "uk": "Завершити"
+  },
+  "PHOTO_TAB$TITLE": {
+    "en": "Photo Generation",
+    "ja": "画像生成",
+    "zh-CN": "图片生成",
+    "zh-TW": "图片生成",
+    "ko-KR": "사진 생성",
+    "no": "Bildegenerering",
+    "ar": "توليد الصور",
+    "de": "Bilderzeugung",
+    "fr": "Génération d'images",
+    "it": "Generazione immagini",
+    "pt": "Geração de imagens",
+    "es": "Generación de imágenes",
+    "tr": "Görsel Oluşturma",
+    "uk": "Генерація зображень"
+  },
+  "PHOTO_TAB$PROMPT_LABEL": {
+    "en": "Prompt"
+  },
+  "PHOTO_TAB$PROMPT_PLACEHOLDER": {
+    "en": "Describe the image you want to generate..."
+  },
+  "PHOTO_TAB$RESOLUTION_LABEL": {
+    "en": "Resolution"
+  },
+  "PHOTO_TAB$STYLE_LABEL": {
+    "en": "Style"
+  },
+  "PHOTO_TAB$GENERATING": {
+    "en": "Generating..."
+  },
+  "PHOTO_TAB$GENERATE": {
+    "en": "Generate Image"
+  },
+  "PHOTO_TAB$DOWNLOAD": {
+    "en": "Download"
+  },
+  "PHOTO_TAB$CLEAR": {
+    "en": "Clear"
+  },
+  "PHOTO_TAB$PREVIEW": {
+    "en": "Preview"
+  },
+  "PHOTO_TAB$EMPTY_MESSAGE": {
+    "en": "Enter a prompt and click Generate to create an image"
+  },
+  "VIDEO_TAB$TITLE": {
+    "en": "Video Generation"
+  },
+  "VIDEO_TAB$PROMPT_LABEL": {
+    "en": "Prompt"
+  },
+  "VIDEO_TAB$PROMPT_PLACEHOLDER": {
+    "en": "Describe the motion and action you want to see in the video..."
+  },
+  "VIDEO_TAB$DURATION_LABEL": {
+    "en": "Duration (seconds)"
+  },
+  "VIDEO_TAB$FPS_LABEL": {
+    "en": "Frame Rate"
+  },
+  "VIDEO_TAB$RESOLUTION_LABEL": {
+    "en": "Resolution"
+  },
+  "VIDEO_TAB$GENERATING": {
+    "en": "Generating... (this may take a while)"
+  },
+  "VIDEO_TAB$GENERATE": {
+    "en": "Generate Video"
+  },
+  "VIDEO_TAB$DOWNLOAD": {
+    "en": "Download"
+  },
+  "VIDEO_TAB$CLEAR": {
+    "en": "Clear"
+  },
+  "VIDEO_TAB$PREVIEW": {
+    "en": "Preview"
+  },
+  "VIDEO_TAB$EMPTY_MESSAGE": {
+    "en": "Enter a prompt and click Generate to create a video"
+  },
+  "VIDEO_TAB$EMPTY_NOTE": {
+    "en": "Video generation may take longer than image generation"
   }
 }

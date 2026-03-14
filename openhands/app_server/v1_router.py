@@ -8,6 +8,8 @@ from openhands.app_server.event_callback import (
 from openhands.app_server.sandbox import sandbox_router, sandbox_spec_router
 from openhands.app_server.user import user_router
 from openhands.app_server.web_client import web_client_router
+from openhands.server.services.image_service import router as image_generation_router
+from openhands.server.services.video_service import router as video_generation_router
 
 # Include routers
 router = APIRouter(prefix='/api/v1')
@@ -18,3 +20,5 @@ router.include_router(sandbox_spec_router.router)
 router.include_router(user_router.router)
 router.include_router(webhook_router.router)
 router.include_router(web_client_router.router)
+router.include_router(image_generation_router.router)
+router.include_router(video_generation_router.router)
