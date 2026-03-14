@@ -115,6 +115,10 @@ ok "Poetry: $(poetry --version 2>/dev/null || echo unknown)"
 
 export POETRY_VIRTUALENVS_IN_PROJECT=true
 
+# Install additional dependencies for image/video generation
+info "Namestam dodatne odvisnosti za generiranje slik in videov..."
+pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 2>/dev/null || pip install --quiet torch torchvision
+
 if [ ! -d .venv ]; then
   info "poetry install (prvic — traja nekaj minut)..."
   poetry install --no-interaction
@@ -126,8 +130,10 @@ fi
 info "Korak 5/6: Nastavljam LLM nastavitve za LM Studio..."
 mkdir -p "${OPENHANDS_CONFIG_DIR}" "${WORKSPACE_DIR}"
 mkdir -p "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"
+mkdir -p "${WORKSPACE_DIR}/output"  # Output directory for generated images/videos
+
 # Some dirs may be owned by root from previous Docker runs — use sudo as fallback
-for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project"; do
+for d in "${WORKSPACE_DIR}" "${WORKSPACE_DIR}/conversations" "${WORKSPACE_DIR}/bash_events" "${WORKSPACE_DIR}/project" "${WORKSPACE_DIR}/output"; do
   chmod 777 "$d" 2>/dev/null || sudo chmod 777 "$d"
 done
 
@@ -168,6 +174,26 @@ export OH_ENABLE_MCP=false
 # This prompt-based approach works reliably with local models that
 # cannot handle the OpenAI-style `tools` API parameter.
 export LLM_NATIVE_TOOL_CALLING=false
+
+# ── Generation Services Configuration ────────────────────────────
+info "Nastavljam Generation Services (image/video)..."
+
+# Output directory for generated images and videos
+export WORKSPACE_OUTPUT_DIR="${WORKSPACE_DIR}/output"
+
+# Image generation settings
+export IMAGE_RATE_LIMIT=10
+export IMAGE_MODEL="black-forest-labs/FLUX.1-schnell"
+export GPU_ENABLED=true
+export MAX_IMAGE_SIZE=1024
+
+# Video generation settings  
+export VIDEO_RATE_LIMIT=5
+export VIDEO_MODEL="damo-vilab/text-to-video-ms-1.7b"
+export MAX_VIDEO_DURATION=30
+
+ok "Generation Services: OUTPUT_DIR=${WORKSPACE_OUTPUT_DIR}"
+ok "Generation Services: IMAGE_RATE_LIMIT=${IMAGE_RATE_LIMIT}, VIDEO_RATE_LIMIT=${VIDEO_RATE_LIMIT}"
 
 # Write a fresh settings.json so the OpenHands server has the correct
 # LLM configuration from the very first request.  Without this file the
