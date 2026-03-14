@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PlayIcon from '#/icons/play.svg?react';
 import { cn } from '#/utils/utils';
+import { generateVideo, VideoGenerationResponse } from '#/api/generation-service';
 
 interface VideoGenerationOptions {
   duration: number;
@@ -50,26 +51,16 @@ function VideoTab() {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/generate-video', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          duration,
-          fps,
-          resolution,
-        }),
+      const data: VideoGenerationResponse = await generateVideo({
+        prompt,
+        duration,
+        fps,
+        resolution,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to generate video');
-      }
-
-      const data = await response.json();
-      setGeneratedVideo(data.video_path);
+      
+      // Use the backend endpoint for serving the video
+      const videoUrl = `/api/v1/generated-videos/${data.video_id}`;
+      setGeneratedVideo(videoUrl);
       setVideoMetadata({
         duration: data.duration,
         fps: data.fps,

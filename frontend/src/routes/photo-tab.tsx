@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ImageIcon from '#/icons/image.svg?react';
 import { cn } from '#/utils/utils';
+import { generateImage, ImageGenerationResponse } from '#/api/generation-service';
 
 interface GenerationOptions {
   resolution: string;
@@ -40,25 +41,15 @@ function PhotoTab() {
     setError(null);
 
     try {
-      const response = await fetch('/api/v1/generate-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          resolution,
-          style,
-        }),
+      const data: ImageGenerationResponse = await generateImage({
+        prompt,
+        resolution,
+        style,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to generate image');
-      }
-
-      const data = await response.json();
-      setGeneratedImage(data.image_path);
+      
+      // Use the backend endpoint for serving the image
+      const imageUrl = `/api/v1/generated-images/${data.image_id}`;
+      setGeneratedImage(imageUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {

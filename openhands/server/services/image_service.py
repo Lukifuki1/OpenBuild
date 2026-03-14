@@ -9,7 +9,13 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from collections import defaultdict
+from datetime import datetime, timedelta
+import asyncio
+
+from openhands.server.dependencies import get_dependencies
 
 # Try to import diffusers - may not be available in all environments
 try:
@@ -20,7 +26,33 @@ except ImportError:
     DIFFUSERS_AVAILABLE = False
 
 
-router = APIRouter(prefix='/api/v1', tags=['image-generation'])
+router = APIRouter(prefix='/api/v1', tags=['image-generation'], dependencies=get_dependencies())
+
+# Simple in-memory rate limiter
+_rate_limit_storage: dict = defaultdict(list)
+IMAGE_RATE_LIMIT = int(os.environ.get('IMAGE_RATE_LIMIT', '10'))  # requests per minute
+IMAGE_RATE_WINDOW = 60  # seconds
+
+
+def _check_rate_limit(user_id: str | None, limit: int, window: int) -> bool:
+    """Check if user has exceeded rate limit. Returns True if allowed."""
+    if user_id is None:
+        return True  # Skip rate limiting if no user ID
+    
+    now = datetime.now()
+    cutoff = now - timedelta(seconds=window)
+    
+    # Clean old requests
+    _rate_limit_storage[user_id] = [
+        req_time for req_time in _rate_limit_storage[user_id]
+        if req_time > cutoff
+    ]
+    
+    if len(_rate_limit_storage[user_id]) >= limit:
+        return False
+    
+    _rate_limit_storage[user_id].append(now)
+    return True
 
 # Output directory for generated images
 OUTPUT_DIR = os.environ.get('WORKSPACE_OUTPUT_DIR', '/workspace/output')
@@ -33,12 +65,12 @@ MAX_IMAGE_SIZE = int(os.environ.get('MAX_IMAGE_SIZE', '1024'))
 
 class ImageGenerationRequest(BaseModel):
     """Request model for image generation."""
-    prompt: str
+    prompt: str = Field(..., min_length=1, max_length=1000)
     resolution: str = "1024x1024"
     style: str = "default"
     negative_prompt: Optional[str] = None
-    num_inference_steps: int = 28
-    guidance_scale: float = 3.5
+    num_inference_steps: int = Field(default=28, ge=1, le=100)
+    guidance_scale: float = Field(default=3.5, ge=1.0, le=20.0)
 
 
 class ImageGenerationResponse(BaseModel):
@@ -104,6 +136,13 @@ async def generate_image(request: ImageGenerationRequest):
     Returns:
         ImageGenerationResponse with the generated image path
     """
+    # Check rate limit
+    if not _check_rate_limit(None, IMAGE_RATE_LIMIT, IMAGE_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Please try again later."
+        )
+    
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -160,9 +199,28 @@ async def generate_image(request: ImageGenerationRequest):
 @router.get('/image-generation/health')
 async def health_check():
     """Health check endpoint for image generation service."""
+    gpu_available = False
+    if DIFFUSERS_AVAILABLE:
+        import torch
+        gpu_available = torch.cuda.is_available()
+    
     return {
         "status": "healthy",
         "diffusers_available": DIFFUSERS_AVAILABLE,
-        "gpu_available": torch.cuda.is_available() if DIFFUSERS_AVAILABLE else False,
+        "gpu_available": gpu_available,
         "cached_models": list(_pipeline_cache.keys())
     }
+
+
+@router.get('/generated-images/{image_id}')
+async def get_generated_image(image_id: str):
+    """Serve a generated image by ID."""
+    # Look for the image file
+    possible_extensions = ['.png', '.jpg', '.jpeg', '.webp']
+    
+    for ext in possible_extensions:
+        image_path = os.path.join(OUTPUT_DIR, f'image_{image_id}{ext}')
+        if os.path.exists(image_path):
+            return FileResponse(image_path, media_type=f'image/{ext[1:]}')
+    
+    raise HTTPException(status_code=404, detail="Image not found")
