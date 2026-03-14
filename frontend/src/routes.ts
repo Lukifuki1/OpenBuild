@@ -24,6 +24,9 @@ export default [
     route("conversations/:conversationId", "routes/conversation.tsx"),
     route("microagent-management", "routes/microagent-management.tsx"),
     route("oauth/device/verify", "routes/device-verify.tsx"),
+    // Generation tabs
+    route("photo", "routes/photo-tab.tsx"),
+    route("video", "routes/video-tab.tsx"),
   ]),
   // Shared routes that don't require authentication
   route(
