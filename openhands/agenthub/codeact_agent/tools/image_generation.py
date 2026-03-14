@@ -38,10 +38,10 @@ def create_generate_image_tool(
     base_url: str = 'http://localhost:3000',
 ) -> dict[str, Any]:
     """Create the image generation tool definition.
-    
+
     Args:
         base_url: The base URL for the API endpoint
-        
+
     Returns:
         Tool definition compatible with LiteLLM
     """
@@ -123,7 +123,7 @@ async def execute_generate_image(
     base_url: str = 'http://localhost:3000',
 ) -> str:
     """Execute image generation via API.
-    
+
     Args:
         prompt: Text description of the image to generate
         resolution: Image resolution (e.g., "1024x1024")
@@ -132,35 +132,35 @@ async def execute_generate_image(
         num_inference_steps: Number of inference steps
         guidance_scale: Guidance scale for generation
         base_url: Base URL for API
-        
+
     Returns:
         Path to the generated image or error message
     """
     url = f'{base_url}/api/v1/generate-image'
-    
+
     payload = {
         'prompt': prompt,
         'resolution': resolution,
         'style': style,
     }
-    
+
     if negative_prompt:
         payload['negative_prompt'] = negative_prompt
-    
+
     if num_inference_steps:
-        payload['num_inference_steps'] = num_inference_steps
-    
+        payload['num_inference_steps'] = int(num_inference_steps)
+
     if guidance_scale:
-        payload['guidance_scale'] = guidance_scale
-    
+        payload['guidance_scale'] = float(guidance_scale)
+
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             result = response.json()
-            
+
             return f"Image generated successfully!\nPath: {result.get('image_path', 'unknown')}\nImage ID: {result.get('image_id', 'unknown')}\nResolution: {result.get('resolution', resolution)}\nModel: {result.get('model', style)}"
-            
+
     except httpx.TimeoutException:
         return "Error: Image generation timed out. Please try again with fewer inference steps or a simpler prompt."
     except httpx.HTTPStatusError as e:

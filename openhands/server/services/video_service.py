@@ -98,12 +98,12 @@ def _load_video_pipeline(model_name: str, device: str = 'cuda'):
             model_name,
             torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         )
-        
+
         if device == 'cuda' and torch.cuda.is_available():
             pipeline = pipeline.to('cuda')
         else:
             pipeline = pipeline.to('cpu')
-        
+
         _video_pipeline_cache[model_name] = pipeline
         return pipeline
     except Exception as e:
@@ -122,7 +122,7 @@ def _create_simple_video(
     output_path: str
 ) -> str:
     """Create a simple animated video for demonstration purposes.
-    
+
     This is a fallback when proper video generation models are not available.
     It creates a simple animated pattern based on the prompt.
     """
@@ -134,29 +134,29 @@ def _create_simple_video(
 
     # Calculate number of frames
     num_frames = int(duration * fps)
-    
+
     # Create video writer
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
+
     # Generate simple animated frames based on prompt hash
     prompt_hash = hash(prompt) % 1000
-    
+
     for i in range(num_frames):
         # Create a dynamic pattern
         frame = np.zeros((height, width, 3), dtype=np.uint8)
-        
+
         # Create moving gradient based on frame number
         offset = (i / num_frames) * 255
-        
+
         # Use prompt hash to create unique patterns
         r = int((np.sin(i * 0.1 + prompt_hash) + 1) * 127)
         g = int((np.cos(i * 0.15 + prompt_hash) + 1) * 127)
         b = int((np.sin(i * 0.2 + prompt_hash * 2) + 1) * 127)
-        
+
         # Fill with color
         frame[:, :] = [b, g, r]
-        
+
         # Add some variation
         cv2.putText(
             frame,
@@ -167,9 +167,9 @@ def _create_simple_video(
             (255, 255, 255),
             2
         )
-        
+
         out.write(frame)
-    
+
     out.release()
     return output_path
 
@@ -177,35 +177,35 @@ def _create_simple_video(
 @router.post('/generate-video', response_model=VideoGenerationResponse)
 async def generate_video(request: VideoGenerationRequest):
     """Generate a video from a text prompt.
-    
+
     Args:
         request: VideoGenerationRequest containing prompt and parameters
-        
+
     Returns:
         VideoGenerationResponse with the generated video path
     """
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
+
     # Parse resolution
     width, height = _get_resolution_tuple(request.resolution)
-    
+
     # Determine device
     device = 'cuda' if (DIFFUSERS_VIDEO_AVAILABLE and os.environ.get('GPU_ENABLED', 'true').lower() == 'true') else 'cpu'
-    
+
     # Video ID for filename
-    video_id = str(uuid.uuid8())[:8]
+    video_id = str(uuid.uuid4())[:8]
     video_filename = f'video_{video_id}.mp4'
     video_path = os.path.join(OUTPUT_DIR, video_filename)
-    
+
     try:
         # Try to use proper video generation model if available
         if DIFFUSERS_VIDEO_AVAILABLE:
             model_name = 'stabilityai/stable-video-diffusion'
-            
+
             try:
                 pipeline = _load_video_pipeline(model_name, device)
-                
+
                 # Generate video frames
                 result = pipeline(
                     prompt=request.prompt,
@@ -216,7 +216,7 @@ async def generate_video(request: VideoGenerationRequest):
                     width=width,
                     num_frames=int(request.duration * request.fps),
                 )
-                
+
                 # Save frames as video
                 if not CV2_AVAILABLE:
                     # Save first frame as fallback
@@ -229,26 +229,26 @@ async def generate_video(request: VideoGenerationRequest):
                         resolution=request.resolution,
                         model=model_name
                     )
-                
+
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 out = cv2.VideoWriter(video_path, fourcc, request.fps, (width, height))
-                
+
                 for frame in result.images:
                     # Convert PIL image to numpy array
                     frame_np = np.array(frame)
                     # Convert RGB to BGR for OpenCV
                     frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
                     out.write(frame_bgr)
-                
+
                 out.release()
-                
+
             except Exception as model_error:
                 # Fallback to simple video generation
                 pass
         else:
             # Use fallback simple video generation
             pass
-        
+
         # Fallback: Create simple animated video
         _create_simple_video(
             prompt=request.prompt,
@@ -258,7 +258,7 @@ async def generate_video(request: VideoGenerationRequest):
             height=height,
             output_path=video_path
         )
-        
+
         return VideoGenerationResponse(
             video_path=video_path,
             video_id=video_id,
@@ -267,7 +267,7 @@ async def generate_video(request: VideoGenerationRequest):
             resolution=request.resolution,
             model="fallback-animated"
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -278,27 +278,27 @@ async def generate_video(request: VideoGenerationRequest):
 @router.post('/generate-video-from-image', response_model=VideoGenerationResponse)
 async def generate_video_from_image(request: ImageToVideoRequest):
     """Generate a video from an image (image-to-video).
-    
+
     Args:
         request: ImageToVideoRequest containing image path and prompt
-        
+
     Returns:
         VideoGenerationResponse with the generated video path
     """
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
+
     if not os.path.exists(request.image_path):
         raise HTTPException(
             status_code=400,
             detail=f"Image not found: {request.image_path}"
         )
-    
+
     # Video ID for filename
-    video_id = str(uuid.uuid8())[:8]
+    video_id = str(uuid.uuid4())[:8]
     video_filename = f'video_{video_id}.mp4'
     video_path = os.path.join(OUTPUT_DIR, video_filename)
-    
+
     try:
         # For now, use fallback - proper implementation would use img2img models
         _create_simple_video(
@@ -309,7 +309,7 @@ async def generate_video_from_image(request: ImageToVideoRequest):
             height=576,
             output_path=video_path
         )
-        
+
         return VideoGenerationResponse(
             video_path=video_path,
             video_id=video_id,
@@ -318,7 +318,7 @@ async def generate_video_from_image(request: ImageToVideoRequest):
             resolution="1024x576",
             model="fallback-animated"
         )
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
