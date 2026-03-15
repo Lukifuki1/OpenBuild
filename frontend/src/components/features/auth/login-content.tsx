@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { I18nKey } from "#/i18n/declaration";
-import OpenHandsLogoWhite from "#/assets/branding/openhands-logo-white.svg?react";
+import OpenBuildLogo from "#/assets/branding/openbuild-logo.png";
 import GitHubLogo from "#/assets/branding/github-logo.svg?react";
 import GitLabLogo from "#/assets/branding/gitlab-logo.svg?react";
 import BitbucketLogo from "#/assets/branding/bitbucket-logo.svg?react";
@@ -164,7 +164,13 @@ export function LoginContent({
       data-testid="login-content"
     >
       <div>
-        <OpenHandsLogoWhite width={106} height={72} />
+        <img
+          src={OpenBuildLogo}
+          alt="OpenBuild"
+          width={106}
+          height={72}
+          className="object-contain"
+        />
       </div>
 
       <h1 className="text-[39px] leading-5 font-medium text-white text-center">
