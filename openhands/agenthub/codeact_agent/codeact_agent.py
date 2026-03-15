@@ -26,6 +26,9 @@ from openhands.agenthub.codeact_agent.tools.condensation_request import (
     CondensationRequestTool,
 )
 from openhands.agenthub.codeact_agent.tools.finish import FinishTool
+from openhands.agenthub.codeact_agent.tools.image_generation import (
+    create_generate_image_tool,
+)
 from openhands.agenthub.codeact_agent.tools.ipython import IPythonTool
 from openhands.agenthub.codeact_agent.tools.llm_based_edit import LLMBasedFileEditTool
 from openhands.agenthub.codeact_agent.tools.str_replace_editor import (
@@ -35,9 +38,6 @@ from openhands.agenthub.codeact_agent.tools.task_tracker import (
     create_task_tracker_tool,
 )
 from openhands.agenthub.codeact_agent.tools.think import ThinkTool
-from openhands.agenthub.codeact_agent.tools.image_generation import (
-    create_generate_image_tool,
-)
 from openhands.agenthub.codeact_agent.tools.video_generation import (
     create_generate_video_tool,
 )

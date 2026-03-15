@@ -42,10 +42,10 @@ def create_generate_video_tool(
     base_url: str = 'http://localhost:3000',
 ) -> dict[str, Any]:
     """Create the video generation tool definition.
-    
+
     Args:
         base_url: The base URL for the API endpoint
-        
+
     Returns:
         Tool definition compatible with LiteLLM
     """
@@ -133,7 +133,7 @@ async def execute_generate_video(
     base_url: str = 'http://localhost:3000',
 ) -> str:
     """Execute video generation via API.
-    
+
     Args:
         prompt: Text description of the video to generate
         duration: Video duration in seconds
@@ -143,44 +143,44 @@ async def execute_generate_video(
         num_inference_steps: Number of inference steps
         guidance_scale: Guidance scale for generation
         base_url: Base URL for API
-        
+
     Returns:
         Path to the generated video or error message
     """
     url = f'{base_url}/api/v1/generate-video'
-    
+
     payload = {
         'prompt': prompt,
         'duration': duration,
         'fps': fps,
         'resolution': resolution,
     }
-    
+
     if negative_prompt:
         payload['negative_prompt'] = negative_prompt
-    
+
     if num_inference_steps:
         payload['num_inference_steps'] = num_inference_steps
-    
+
     if guidance_scale:
         payload['guidance_scale'] = guidance_scale
-    
+
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             result = response.json()
-            
-            return f"Video generated successfully!\nPath: {result.get('video_path', 'unknown')}\nVideo ID: {result.get('video_id', 'unknown')}\nDuration: {result.get('duration', duration)}s\nFPS: {result.get('fps', fps)}\nResolution: {result.get('resolution', resolution)}\nModel: {result.get('model', 'unknown')}"
-            
+
+            return f'Video generated successfully!\nPath: {result.get("video_path", "unknown")}\nVideo ID: {result.get("video_id", "unknown")}\nDuration: {result.get("duration", duration)}s\nFPS: {result.get("fps", fps)}\nResolution: {result.get("resolution", resolution)}\nModel: {result.get("model", "unknown")}'
+
     except httpx.TimeoutException:
-        return "Error: Video generation timed out. This is expected for longer videos. Please try again with a shorter duration or simpler prompt."
+        return 'Error: Video generation timed out. This is expected for longer videos. Please try again with a shorter duration or simpler prompt.'
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 503:
-            return "Error: Video generation service is not available. Please ensure the service is running and dependencies are installed."
-        return f"Error: Failed to generate video - {e.response.status_code}: {e.response.text}"
+            return 'Error: Video generation service is not available. Please ensure the service is running and dependencies are installed.'
+        return f'Error: Failed to generate video - {e.response.status_code}: {e.response.text}'
     except Exception as e:
-        return f"Error: Video generation failed - {str(e)}"
+        return f'Error: Video generation failed - {str(e)}'
 
 
 async def execute_generate_video_from_image(
@@ -191,39 +191,39 @@ async def execute_generate_video_from_image(
     base_url: str = 'http://localhost:3000',
 ) -> str:
     """Execute image-to-video generation via API.
-    
+
     Args:
         image_path: Path to the source image
         prompt: Text description of the motion desired
         duration: Video duration in seconds
         fps: Frames per second
         base_url: Base URL for API
-        
+
     Returns:
         Path to the generated video or error message
     """
     url = f'{base_url}/api/v1/generate-video-from-image'
-    
+
     payload = {
         'image_path': image_path,
         'prompt': prompt,
         'duration': duration,
         'fps': fps,
     }
-    
+
     try:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             result = response.json()
-            
-            return f"Video generated from image successfully!\nPath: {result.get('video_path', 'unknown')}\nVideo ID: {result.get('video_id', 'unknown')}\nDuration: {result.get('duration', duration)}s\nFPS: {result.get('fps', fps)}"
-            
+
+            return f'Video generated from image successfully!\nPath: {result.get("video_path", "unknown")}\nVideo ID: {result.get("video_id", "unknown")}\nDuration: {result.get("duration", duration)}s\nFPS: {result.get("fps", fps)}'
+
     except httpx.TimeoutException:
-        return "Error: Video generation timed out. This is expected for longer videos. Please try again with a shorter duration."
+        return 'Error: Video generation timed out. This is expected for longer videos. Please try again with a shorter duration.'
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 503:
-            return "Error: Video generation service is not available."
-        return f"Error: Failed to generate video - {e.response.status_code}: {e.response.text}"
+            return 'Error: Video generation service is not available.'
+        return f'Error: Failed to generate video - {e.response.status_code}: {e.response.text}'
     except Exception as e:
-        return f"Error: Video generation failed - {str(e)}"
+        return f'Error: Video generation failed - {str(e)}'

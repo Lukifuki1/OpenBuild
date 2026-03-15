@@ -252,14 +252,14 @@ class MCPConfig(BaseModel):
         return normalized
 
     @model_validator(mode='before')
-    def convert_string_urls(cls, data):
+    def convert_string_urls(self, data):
         """Convert string URLs to MCPSSEServerConfig objects."""
         if isinstance(data, dict):
             if 'sse_servers' in data:
-                data['sse_servers'] = cls._normalize_servers(data['sse_servers'])
+                data['sse_servers'] = self._normalize_servers(data['sse_servers'])
 
             if 'shttp_servers' in data:
-                data['shttp_servers'] = cls._normalize_servers(data['shttp_servers'])
+                data['shttp_servers'] = self._normalize_servers(data['shttp_servers'])
 
         return data
 

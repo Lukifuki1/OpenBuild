@@ -159,13 +159,13 @@ async def execute_generate_image(
             response.raise_for_status()
             result = response.json()
 
-            return f"Image generated successfully!\nPath: {result.get('image_path', 'unknown')}\nImage ID: {result.get('image_id', 'unknown')}\nResolution: {result.get('resolution', resolution)}\nModel: {result.get('model', style)}"
+            return f'Image generated successfully!\nPath: {result.get("image_path", "unknown")}\nImage ID: {result.get("image_id", "unknown")}\nResolution: {result.get("resolution", resolution)}\nModel: {result.get("model", style)}'
 
     except httpx.TimeoutException:
-        return "Error: Image generation timed out. Please try again with fewer inference steps or a simpler prompt."
+        return 'Error: Image generation timed out. Please try again with fewer inference steps or a simpler prompt.'
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 503:
-            return "Error: Image generation service is not available. Please ensure the service is running and dependencies are installed."
-        return f"Error: Failed to generate image - {e.response.status_code}: {e.response.text}"
+            return 'Error: Image generation service is not available. Please ensure the service is running and dependencies are installed.'
+        return f'Error: Failed to generate image - {e.response.status_code}: {e.response.text}'
     except Exception as e:
-        return f"Error: Image generation failed - {str(e)}"
+        return f'Error: Image generation failed - {str(e)}'

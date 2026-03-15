@@ -6,27 +6,29 @@ diffusion models (FLUX, SDXL) via the diffusers library.
 
 import os
 import uuid
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from collections import defaultdict
-from datetime import datetime, timedelta
-import asyncio
 
 from openhands.server.dependencies import get_dependencies
 
 # Try to import diffusers - may not be available in all environments
 try:
-    from diffusers import DiffusionPipeline
     import torch
+    from diffusers import DiffusionPipeline
+
     DIFFUSERS_AVAILABLE = True
 except ImportError:
     DIFFUSERS_AVAILABLE = False
 
 
-router = APIRouter(prefix='/api/v1', tags=['image-generation'], dependencies=get_dependencies())
+router = APIRouter(
+    prefix='/api/v1', tags=['image-generation'], dependencies=get_dependencies()
+)
 
 # Simple in-memory rate limiter
 _rate_limit_storage: dict = defaultdict(list)
@@ -38,21 +40,21 @@ def _check_rate_limit(user_id: str | None, limit: int, window: int) -> bool:
     """Check if user has exceeded rate limit. Returns True if allowed."""
     if user_id is None:
         return True  # Skip rate limiting if no user ID
-    
+
     now = datetime.now()
     cutoff = now - timedelta(seconds=window)
-    
+
     # Clean old requests
     _rate_limit_storage[user_id] = [
-        req_time for req_time in _rate_limit_storage[user_id]
-        if req_time > cutoff
+        req_time for req_time in _rate_limit_storage[user_id] if req_time > cutoff
     ]
-    
+
     if len(_rate_limit_storage[user_id]) >= limit:
         return False
-    
+
     _rate_limit_storage[user_id].append(now)
     return True
+
 
 # Output directory for generated images
 OUTPUT_DIR = os.environ.get('WORKSPACE_OUTPUT_DIR', '/workspace/output')
@@ -65,9 +67,10 @@ MAX_IMAGE_SIZE = int(os.environ.get('MAX_IMAGE_SIZE', '1024'))
 
 class ImageGenerationRequest(BaseModel):
     """Request model for image generation."""
+
     prompt: str = Field(..., min_length=1, max_length=1000)
-    resolution: str = "1024x1024"
-    style: str = "default"
+    resolution: str = '1024x1024'
+    style: str = 'default'
     negative_prompt: Optional[str] = None
     num_inference_steps: int = Field(default=28, ge=1, le=100)
     guidance_scale: float = Field(default=3.5, ge=1.0, le=20.0)
@@ -75,6 +78,7 @@ class ImageGenerationRequest(BaseModel):
 
 class ImageGenerationResponse(BaseModel):
     """Response model for image generation."""
+
     image_path: str
     image_id: str
     resolution: str
@@ -102,7 +106,7 @@ def _load_pipeline(model_name: str, device: str = 'cuda'):
     if not DIFFUSERS_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Image generation is not available. Please install diffusers: pip install diffusers"
+            detail='Image generation is not available. Please install diffusers: pip install diffusers',
         )
 
     try:
@@ -121,8 +125,7 @@ def _load_pipeline(model_name: str, device: str = 'cuda'):
         return pipeline
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load image generation model: {str(e)}"
+            status_code=500, detail=f'Failed to load image generation model: {str(e)}'
         )
 
 
@@ -139,10 +142,9 @@ async def generate_image(request: ImageGenerationRequest):
     # Check rate limit
     if not _check_rate_limit(None, IMAGE_RATE_LIMIT, IMAGE_RATE_WINDOW):
         raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later."
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
         )
-    
+
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -159,7 +161,14 @@ async def generate_image(request: ImageGenerationRequest):
         model_name = 'black-forest-labs/FLUX.1-schnell'
 
     # Determine device
-    device = 'cuda' if (DIFFUSERS_AVAILABLE and os.environ.get('GPU_ENABLED', 'true').lower() == 'true') else 'cpu'
+    device = (
+        'cuda'
+        if (
+            DIFFUSERS_AVAILABLE
+            and os.environ.get('GPU_ENABLED', 'true').lower() == 'true'
+        )
+        else 'cpu'
+    )
 
     try:
         # Load pipeline
@@ -186,13 +195,12 @@ async def generate_image(request: ImageGenerationRequest):
             image_path=image_path,
             image_id=image_id,
             resolution=request.resolution,
-            model=model_name
+            model=model_name,
         )
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Image generation failed: {str(e)}"
+            status_code=500, detail=f'Image generation failed: {str(e)}'
         )
 
 
@@ -202,13 +210,14 @@ async def health_check():
     gpu_available = False
     if DIFFUSERS_AVAILABLE:
         import torch
+
         gpu_available = torch.cuda.is_available()
-    
+
     return {
-        "status": "healthy",
-        "diffusers_available": DIFFUSERS_AVAILABLE,
-        "gpu_available": gpu_available,
-        "cached_models": list(_pipeline_cache.keys())
+        'status': 'healthy',
+        'diffusers_available': DIFFUSERS_AVAILABLE,
+        'gpu_available': gpu_available,
+        'cached_models': list(_pipeline_cache.keys()),
     }
 
 
@@ -217,10 +226,10 @@ async def get_generated_image(image_id: str):
     """Serve a generated image by ID."""
     # Look for the image file
     possible_extensions = ['.png', '.jpg', '.jpeg', '.webp']
-    
+
     for ext in possible_extensions:
         image_path = os.path.join(OUTPUT_DIR, f'image_{image_id}{ext}')
         if os.path.exists(image_path):
             return FileResponse(image_path, media_type=f'image/{ext[1:]}')
-    
-    raise HTTPException(status_code=404, detail="Image not found")
+
+    raise HTTPException(status_code=404, detail='Image not found')

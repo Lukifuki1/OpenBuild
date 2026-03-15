@@ -6,14 +6,13 @@ text-to-video and image-to-video models.
 
 import os
 import uuid
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from collections import defaultdict
-from datetime import datetime, timedelta
-import asyncio
 
 from openhands.server.dependencies import get_dependencies
 
@@ -21,6 +20,7 @@ from openhands.server.dependencies import get_dependencies
 try:
     import cv2
     import numpy as np
+
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
@@ -29,12 +29,15 @@ except ImportError:
 try:
     import torch
     from diffusers import StableVideoDiffusionPipeline
+
     DIFFUSERS_VIDEO_AVAILABLE = True
 except ImportError:
     DIFFUSERS_VIDEO_AVAILABLE = False
 
 
-router = APIRouter(prefix='/api/v1', tags=['video-generation'], dependencies=get_dependencies())
+router = APIRouter(
+    prefix='/api/v1', tags=['video-generation'], dependencies=get_dependencies()
+)
 
 # Simple in-memory rate limiter
 _rate_limit_storage: dict = defaultdict(list)
@@ -46,21 +49,21 @@ def _check_rate_limit(user_id: str | None, limit: int, window: int) -> bool:
     """Check if user has exceeded rate limit. Returns True if allowed."""
     if user_id is None:
         return True  # Skip rate limiting if no user ID
-    
+
     now = datetime.now()
     cutoff = now - timedelta(seconds=window)
-    
+
     # Clean old requests
     _rate_limit_storage[user_id] = [
-        req_time for req_time in _rate_limit_storage[user_id]
-        if req_time > cutoff
+        req_time for req_time in _rate_limit_storage[user_id] if req_time > cutoff
     ]
-    
+
     if len(_rate_limit_storage[user_id]) >= limit:
         return False
-    
+
     _rate_limit_storage[user_id].append(now)
     return True
+
 
 # Output directory for generated videos
 OUTPUT_DIR = os.environ.get('WORKSPACE_OUTPUT_DIR', '/workspace/output')
@@ -73,10 +76,11 @@ MAX_VIDEO_DURATION = float(os.environ.get('MAX_VIDEO_DURATION', '10.0'))
 
 class VideoGenerationRequest(BaseModel):
     """Request model for video generation."""
+
     prompt: str = Field(..., min_length=1, max_length=1000)
     duration: float = Field(default=5.0, ge=1.0, le=30.0)  # seconds
     fps: int = Field(default=24, ge=10, le=60)
-    resolution: str = "1024x576"
+    resolution: str = '1024x576'
     negative_prompt: Optional[str] = None
     num_inference_steps: int = Field(default=25, ge=1, le=100)
     guidance_scale: float = Field(default=7.0, ge=1.0, le=20.0)
@@ -84,16 +88,18 @@ class VideoGenerationRequest(BaseModel):
 
 class ImageToVideoRequest(BaseModel):
     """Request model for image-to-video generation."""
+
     image_path: str
     prompt: str = Field(..., min_length=1, max_length=1000)
     duration: float = Field(default=5.0, ge=1.0, le=30.0)
     fps: int = Field(default=24, ge=10, le=60)
-    resolution: str = "1024x576"
+    resolution: str = '1024x576'
     negative_prompt: Optional[str] = None
 
 
 class VideoGenerationResponse(BaseModel):
     """Response model for video generation."""
+
     video_path: str
     video_id: str
     duration: float
@@ -123,7 +129,7 @@ def _load_video_pipeline(model_name: str, device: str = 'cuda'):
     if not DIFFUSERS_VIDEO_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="Video generation is not available. Please install diffusers: pip install diffusers"
+            detail='Video generation is not available. Please install diffusers: pip install diffusers',
         )
 
     try:
@@ -141,18 +147,12 @@ def _load_video_pipeline(model_name: str, device: str = 'cuda'):
         return pipeline
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load video generation model: {str(e)}"
+            status_code=500, detail=f'Failed to load video generation model: {str(e)}'
         )
 
 
 def _create_simple_video(
-    prompt: str,
-    duration: float,
-    fps: int,
-    width: int,
-    height: int,
-    output_path: str
+    prompt: str, duration: float, fps: int, width: int, height: int, output_path: str
 ) -> str:
     """Create a simple animated video for demonstration purposes.
 
@@ -162,7 +162,7 @@ def _create_simple_video(
     if not CV2_AVAILABLE:
         raise HTTPException(
             status_code=503,
-            detail="OpenCV is not available. Please install opencv-python"
+            detail='OpenCV is not available. Please install opencv-python',
         )
 
     # Calculate number of frames
@@ -180,7 +180,7 @@ def _create_simple_video(
         frame = np.zeros((height, width, 3), dtype=np.uint8)
 
         # Create moving gradient based on frame number
-        offset = (i / num_frames) * 255
+        (i / num_frames) * 255
 
         # Use prompt hash to create unique patterns
         r = int((np.sin(i * 0.1 + prompt_hash) + 1) * 127)
@@ -193,12 +193,12 @@ def _create_simple_video(
         # Add some variation
         cv2.putText(
             frame,
-            f"Frame {i+1}/{num_frames}",
+            f'Frame {i + 1}/{num_frames}',
             (width // 4, height // 2),
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
             (255, 255, 255),
-            2
+            2,
         )
 
         out.write(frame)
@@ -220,10 +220,9 @@ async def generate_video(request: VideoGenerationRequest):
     # Check rate limit
     if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
         raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later."
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
         )
-    
+
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -231,7 +230,14 @@ async def generate_video(request: VideoGenerationRequest):
     width, height = _get_resolution_tuple(request.resolution)
 
     # Determine device
-    device = 'cuda' if (DIFFUSERS_VIDEO_AVAILABLE and os.environ.get('GPU_ENABLED', 'true').lower() == 'true') else 'cpu'
+    device = (
+        'cuda'
+        if (
+            DIFFUSERS_VIDEO_AVAILABLE
+            and os.environ.get('GPU_ENABLED', 'true').lower() == 'true'
+        )
+        else 'cpu'
+    )
 
     # Video ID for filename
     video_id = str(uuid.uuid4())[:8]
@@ -267,7 +273,7 @@ async def generate_video(request: VideoGenerationRequest):
                         duration=request.duration,
                         fps=request.fps,
                         resolution=request.resolution,
-                        model=model_name
+                        model=model_name,
                     )
 
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -282,7 +288,7 @@ async def generate_video(request: VideoGenerationRequest):
 
                 out.release()
 
-            except Exception as model_error:
+            except Exception:
                 # Fallback to simple video generation
                 pass
         else:
@@ -296,7 +302,7 @@ async def generate_video(request: VideoGenerationRequest):
             fps=request.fps,
             width=width,
             height=height,
-            output_path=video_path
+            output_path=video_path,
         )
 
         return VideoGenerationResponse(
@@ -305,13 +311,12 @@ async def generate_video(request: VideoGenerationRequest):
             duration=request.duration,
             fps=request.fps,
             resolution=request.resolution,
-            model="fallback-animated"
+            model='fallback-animated',
         )
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Video generation failed: {str(e)}"
+            status_code=500, detail=f'Video generation failed: {str(e)}'
         )
 
 
@@ -328,17 +333,15 @@ async def generate_video_from_image(request: ImageToVideoRequest):
     # Check rate limit
     if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
         raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later."
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
         )
-    
+
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     if not os.path.exists(request.image_path):
         raise HTTPException(
-            status_code=400,
-            detail=f"Image not found: {request.image_path}"
+            status_code=400, detail=f'Image not found: {request.image_path}'
         )
 
     # Video ID for filename
@@ -349,14 +352,14 @@ async def generate_video_from_image(request: ImageToVideoRequest):
     try:
         # For now, use fallback - proper implementation would use img2img models
         width, height = _get_resolution_tuple(request.resolution)
-        
+
         _create_simple_video(
             prompt=request.prompt,
             duration=request.duration,
             fps=request.fps,
             width=width,
             height=height,
-            output_path=video_path
+            output_path=video_path,
         )
 
         return VideoGenerationResponse(
@@ -364,14 +367,13 @@ async def generate_video_from_image(request: ImageToVideoRequest):
             video_id=video_id,
             duration=request.duration,
             fps=request.fps,
-            resolution=f"{width}x{height}",
-            model="fallback-animated"
+            resolution=f'{width}x{height}',
+            model='fallback-animated',
         )
 
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Video generation from image failed: {str(e)}"
+            status_code=500, detail=f'Video generation from image failed: {str(e)}'
         )
 
 
@@ -381,14 +383,15 @@ async def health_check():
     gpu_available = False
     if DIFFUSERS_VIDEO_AVAILABLE:
         import torch
+
         gpu_available = torch.cuda.is_available()
-    
+
     return {
-        "status": "healthy",
-        "cv2_available": CV2_AVAILABLE,
-        "diffusers_video_available": DIFFUSERS_VIDEO_AVAILABLE,
-        "gpu_available": gpu_available,
-        "cached_models": list(_video_pipeline_cache.keys())
+        'status': 'healthy',
+        'cv2_available': CV2_AVAILABLE,
+        'diffusers_video_available': DIFFUSERS_VIDEO_AVAILABLE,
+        'gpu_available': gpu_available,
+        'cached_models': list(_video_pipeline_cache.keys()),
     }
 
 
@@ -396,8 +399,8 @@ async def health_check():
 async def get_generated_video(video_id: str):
     """Serve a generated video by ID."""
     video_path = os.path.join(OUTPUT_DIR, f'video_{video_id}.mp4')
-    
+
     if os.path.exists(video_path):
         return FileResponse(video_path, media_type='video/mp4')
-    
-    raise HTTPException(status_code=404, detail="Video not found")
+
+    raise HTTPException(status_code=404, detail='Video not found')
