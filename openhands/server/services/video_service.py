@@ -7,9 +7,11 @@ text-to-video and image-to-video models.
 import gc
 import os
 import uuid
+import base64
+import io
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -101,6 +103,47 @@ def _clear_gpu_memory():
     if DIFFUSERS_VIDEO_AVAILABLE and torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
+
+
+def _load_image_from_path_or_data_url(image_source: Union[str, bytes]) -> 'Image.Image':
+    """Load an image from a file path or base64 data URL.
+
+    Args:
+        image_source: Either a file path (str) or a base64 data URL (str starting with 'data:')
+
+    Returns:
+        PIL Image object
+
+    Raises:
+        HTTPException: If the image cannot be loaded
+    """
+    from PIL import Image
+
+    try:
+        # Check if it's a data URL
+        if isinstance(image_source, str) and image_source.startswith('data:'):
+            # Parse the data URL: data:image/png;base64,<data>
+            header, b64data = image_source.split(',', 1)
+            # Decode base64
+            image_data = base64.b64decode(b64data)
+            # Load into PIL Image
+            return Image.open(io.BytesIO(image_data)).convert('RGB')
+        elif isinstance(image_source, bytes):
+            # Raw base64 bytes
+            return Image.open(io.BytesIO(image_source)).convert('RGB')
+        else:
+            # It's a file path
+            if not os.path.exists(image_source):
+                raise HTTPException(
+                    status_code=400, detail=f'Image not found: {image_source}'
+                )
+            return Image.open(image_source).convert('RGB')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f'Failed to load image: {str(e)}'
+        )
 
 
 # Output directory for generated videos
@@ -414,9 +457,14 @@ async def generate_video_from_image(request: ImageToVideoRequest):
     # Ensure output directory exists
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    if not os.path.exists(request.image_path):
+    # Load image (supports both file paths and data URLs)
+    try:
+        image = _load_image_from_path_or_data_url(request.image_path)
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=400, detail=f'Image not found: {request.image_path}'
+            status_code=400, detail=f'Failed to load image: {str(e)}'
         )
 
     # Video ID for filename

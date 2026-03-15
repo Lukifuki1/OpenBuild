@@ -267,3 +267,38 @@ class TestVideoGenerationResponse:
         assert response.video_id == "abc123"
         assert response.duration == 5.0
         assert response.fps == 24
+
+
+class TestVideoImageLoadingFromDataURL:
+    """Tests for loading images from file paths and data URLs in video service."""
+
+    def test_video_load_image_from_data_url(self):
+        """Test loading image from a base64 data URL in video service."""
+        from openhands.server.services.video_service import _load_image_from_path_or_data_url
+        from PIL import Image
+        import base64
+        import io
+
+        # Create a simple test image and encode it as base64 data URL
+        test_image = Image.new('RGB', (10, 10), color='blue')
+        buffer = io.BytesIO()
+        test_image.save(buffer, format='PNG')
+        image_bytes = buffer.getvalue()
+        b64_data = base64.b64encode(image_bytes).decode('utf-8')
+        data_url = f'data:image/png;base64,{b64_data}'
+
+        result = _load_image_from_path_or_data_url(data_url)
+
+        assert isinstance(result, Image.Image)
+        assert result.mode == 'RGB'
+
+    @patch('openhands.server.services.video_service.os.path.exists')
+    def test_video_load_image_from_nonexistent_file(self, mock_exists):
+        """Test that loading from non-existent file raises error."""
+        from openhands.server.services.video_service import _load_image_from_path_or_data_url
+
+        mock_exists.return_value = False
+
+        with pytest.raises(Exception):
+            _load_image_from_path_or_data_url('/nonexistent/image.png')
+
