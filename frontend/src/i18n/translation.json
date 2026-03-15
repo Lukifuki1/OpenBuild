@@ -16819,6 +16819,12 @@
   "PHOTO_TAB$ERROR_GENERIC": {
     "en": "An error occurred"
   },
+  "PHOTO_TAB$ERROR_NO_BATCH": {
+    "en": "Please enter prompts for batch generation"
+  },
+  "PHOTO_TAB$ERROR_BATCH_LIMIT": {
+    "en": "Maximum 10 prompts allowed per batch"
+  },
   "PHOTO_TAB$STATUS_PENDING": {
     "en": "Preparing..."
   },
