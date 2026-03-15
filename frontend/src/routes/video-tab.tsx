@@ -4,9 +4,15 @@ import PlayIcon from "#/icons/play.svg?react";
 import { cn } from "#/utils/utils";
 import {
   generateVideo,
+  generateVideoFromImage,
+  transformVideo,
+  editVideo,
+  enhanceVideo,
   VideoGenerationResponse,
+  VIDEO_RESOLUTIONS,
 } from "#/api/generation-service";
 
+type VideoGenerationMode = "txt2v" | "img2v" | "v2v" | "edit" | "enhance";
 type GenerationState =
   | "idle"
   | "pending"
@@ -25,6 +31,15 @@ const FPS_OPTIONS = [
   { value: 24, label: "24 fps (Cinematic)" },
   { value: 30, label: "30 fps (Standard)" },
   { value: 60, label: "60 fps (Smooth)" },
+];
+
+const VIDEO_OPERATIONS = [
+  { value: "trim", label: "Trim" },
+  { value: "crop", label: "Crop" },
+  { value: "reverse", label: "Reverse" },
+  { value: "loop", label: "Loop" },
+  { value: "slow", label: "Slow Motion" },
+  { value: "fast", label: "Speed Up" },
 ];
 
 const DURATION_MIN = 2;

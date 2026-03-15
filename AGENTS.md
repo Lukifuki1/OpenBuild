@@ -342,3 +342,97 @@ To add a new LLM model to OpenHands, you need to update multiple files across bo
 - Models appear in CLI provider selection based on the verified arrays
 - The `organize_models_and_providers` function groups models by provider
 - Default model selection prioritizes verified models for each provider
+
+### Image and Video Generation Services
+
+OpenHands provides comprehensive image and video generation capabilities through the following backend services:
+
+#### Backend Services
+
+**Image Generation Service** (`openhands/server/services/image_service.py`):
+- `/api/v1/generate-image` - Generate images from text prompts (FLUX, SDXL, Stable Diffusion)
+- `/api/v1/transform-image` - Image-to-image transformation (img2img)
+- `/api/v1/inpaint` - Inpainting with mask support
+- `/api/v1/batch-generate-images` - Batch image generation (up to 10 prompts)
+- `/api/v1/image-generation/health` - Health check with GPU memory info
+- `/api/v1/generated-images/{image_id}` - Retrieve generated images
+
+**Video Generation Service** (`openhands/server/services/video_service.py`):
+- `/api/v1/generate-video` - Generate videos from text prompts
+- `/api/v1/generate-video-from-image` - Image-to-video generation
+- `/api/v1/transform-video` - Video-to-video transformation
+- `/api/v1/edit-video` - Video editing (trim, crop, reverse, loop, slow, fast)
+- `/api/v1/enhance-video` - Video enhancement (upscale, denoise, frame interpolation)
+- `/api/v1/video-generation/health` - Health check with GPU memory info
+- `/api/v1/generated-videos/{video_id}` - Retrieve generated videos
+
+#### Supported Models and Features
+
+**Image Generation:**
+- FLUX.1-schnell (default, fast)
+- Stable Diffusion XL (SDXL)
+- Stable Diffusion 2-1
+- Supported resolutions: 512x512, 1024x1024, 1024x768, 768x1024
+- Style presets: default, anime, photorealistic, abstract, portrait, landscape
+
+**ControlNet Generation:**
+- Canny Edge Detection
+- Depth Map
+- Human Pose
+- Segmentation
+- Normal Map
+- Line Art
+- Anime Lineart
+- Scribble
+- Soft Edge
+- Inpainting
+
+**Video Generation:**
+- Stable Video Diffusion
+- Supported resolutions: 256x256, 512x512, 1024x576
+- Duration: 1-30 seconds
+- FPS: 10-60
+
+#### Frontend Integration
+
+**API Client** (`frontend/src/api/generation-service.ts`):
+- TypeScript interfaces for all request/response types
+- Helper constants for style presets, resolutions, and ControlNet types
+
+**React Query Hooks**:
+- `frontend/src/hooks/query/use-generation-service.ts` - Health check hooks
+- `frontend/src/hooks/mutation/use-generation-service.ts` - Generation mutation hooks
+
+**UI Components**:
+- `frontend/src/routes/photo-tab.tsx` - Image generation UI with txt2img, img2img, inpaint, batch, ControlNet modes
+- `frontend/src/routes/video-tab.tsx` - Video generation UI with txt2v, img2v, v2v, edit, enhance modes
+
+#### Testing
+
+**Unit Tests**:
+- `tests/unit/server/services/test_image_service.py` - Image service unit tests
+- `tests/unit/server/services/test_video_service.py` - Video service unit tests
+
+**Integration Tests**:
+- `tests/integration/test_generation_api.py` - API endpoint validation tests
+
+**E2E Tests**:
+- `tests/e2e/test_generation.py` - End-to-end tests with Playwright
+
+#### Configuration
+
+Environment variables:
+- `IMAGE_RATE_LIMIT` - Image generation rate limit (default: 10 req/min)
+- `VIDEO_RATE_LIMIT` - Video generation rate limit (default: 5 req/min)
+- `GPU_ENABLED` - Enable GPU inference (default: true)
+- `REDIS_URL` - Redis URL for distributed rate limiting
+- `WORKSPACE_OUTPUT_DIR` - Output directory for generated files
+
+#### Dependencies
+
+Required packages (already in pyproject.toml):
+- diffusers>=0.31
+- transformers>=4.46
+- accelerate>=0.34
+- opencv-python>=4.10
+- torch (for GPU acceleration)
