@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import PlayIcon from "#/icons/play.svg?react";
-import UploadIcon from "#/icons/image.svg?react";
+import UploadIcon from "#/icons/u-download.svg?react";
 import { cn } from "#/utils/utils";
 import {
   generateVideo,
@@ -9,6 +9,7 @@ import {
   transformVideo,
   editVideo,
   enhanceVideo,
+  checkVideoGenerationHealth,
   VideoGenerationResponse,
   VIDEO_RESOLUTIONS,
   VideoToVideoRequest,
@@ -56,7 +57,7 @@ const VIDEO_OPERATIONS = [
 ];
 
 const DURATION_MIN = 2;
-const DURATION_MAX = 10;
+const DURATION_MAX = 30;
 const DURATION_DEFAULT = 5;
 
 function VideoTab() {
@@ -84,6 +85,7 @@ function VideoTab() {
     model: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [healthStatus, setHealthStatus] = useState<"loading" | "healthy" | "unhealthy">("loading");
   const progressIntervalRef = useRef<number | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -97,6 +99,19 @@ function VideoTab() {
     },
     [],
   );
+
+  // Check health status on mount
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        await checkVideoGenerationHealth();
+        setHealthStatus("healthy");
+      } catch {
+        setHealthStatus("unhealthy");
+      }
+    };
+    checkHealth();
+  }, []);
 
   // Convert File to base64 data URL for preview
   const fileToDataUrl = (file: File): Promise<string> => {
@@ -250,11 +265,34 @@ function VideoTab() {
       }
     } catch (err) {
       setGenerationState("failed");
-      setError(
-        err instanceof Error
-          ? err.message
-          : t("VIDEO_TAB$ERROR_GENERIC", "An error occurred"),
-      );
+      let errorMessage = t("VIDEO_TAB$ERROR_GENERIC", "An error occurred");
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === 'object') {
+        // Handle API error responses (e.g., Axios errors)
+        const anyErr = err as Record<string, unknown>;
+        const response = anyErr.response as Record<string, unknown> | undefined;
+        const data = response?.data as Record<string, unknown> | undefined;
+        
+        if (typeof data?.detail === 'string') {
+          errorMessage = data.detail;
+        } else if (typeof anyErr.message === 'string') {
+          errorMessage = anyErr.message;
+        } else {
+          // Fallback: try to stringify (but avoid [object Object])
+          try {
+            const serialized = JSON.stringify(err);
+            if (serialized && serialized !== '{}') {
+              errorMessage = serialized;
+            }
+          } catch {
+            // Keep the default error message
+          }
+        }
+      }
+      
+      setError(errorMessage);
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
@@ -311,6 +349,15 @@ function VideoTab() {
         <h2 className="text-lg font-semibold">
           {t("VIDEO_TAB$TITLE", "Video Generation")}
         </h2>
+        {healthStatus === "loading" && (
+          <span className="text-sm text-gray-500">Checking service...</span>
+        )}
+        {healthStatus === "unhealthy" && (
+          <span className="text-sm text-red-500">Service unavailable</span>
+        )}
+        {healthStatus === "healthy" && (
+          <span className="text-sm text-green-500">Service ready</span>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">

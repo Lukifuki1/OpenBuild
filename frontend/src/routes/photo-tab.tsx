@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import ImageIcon from "#/icons/image.svg?react";
-import UploadIcon from "#/icons/image.svg?react";
+import UploadIcon from "#/icons/u-download.svg?react";
 import { cn } from "#/utils/utils";
 import {
   generateImage,
@@ -9,6 +9,7 @@ import {
   inpaintImage,
   batchGenerateImages,
   generateWithControlNet,
+  checkImageGenerationHealth,
   ImageGenerationResponse,
   BatchImageGenerationResponse,
   STYLE_PRESETS,
@@ -54,6 +55,7 @@ function PhotoTab() {
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [generatedImageIds, setGeneratedImageIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [healthStatus, setHealthStatus] = useState<"loading" | "healthy" | "unhealthy">("loading");
   const progressIntervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const maskInputRef = useRef<HTMLInputElement>(null);
@@ -68,6 +70,19 @@ function PhotoTab() {
     },
     [],
   );
+
+  // Check health status on mount
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        await checkImageGenerationHealth();
+        setHealthStatus("healthy");
+      } catch {
+        setHealthStatus("unhealthy");
+      }
+    };
+    checkHealth();
+  }, []);
 
   // Convert File to base64 data URL for preview
   const fileToDataUrl = (file: File): Promise<string> => {
@@ -198,6 +213,20 @@ function PhotoTab() {
         }
         case "batch": {
           const prompts = batchPrompts.split("\n").filter((p) => p.trim());
+          
+          // Validate batch size
+          if (prompts.length > 10) {
+            setError(t("PHOTO_TAB$ERROR_BATCH_LIMIT", "Maximum 10 prompts allowed per batch"));
+            setGenerationState("failed");
+            return;
+          }
+          
+          if (prompts.length === 0) {
+            setError(t("PHOTO_TAB$ERROR_NO_BATCH", "Please enter prompts for batch generation"));
+            setGenerationState("failed");
+            return;
+          }
+          
           const batchRequest: BatchImageGenerationRequest = {
             prompts,
             resolution,
@@ -235,11 +264,34 @@ function PhotoTab() {
       }
     } catch (err) {
       setGenerationState("failed");
-      setError(
-        err instanceof Error
-          ? err.message
-          : t("PHOTO_TAB$ERROR_GENERIC", "An error occurred"),
-      );
+      let errorMessage = t("PHOTO_TAB$ERROR_GENERIC", "An error occurred");
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === 'object') {
+        // Handle API error responses (e.g., Axios errors)
+        const anyErr = err as Record<string, unknown>;
+        const response = anyErr.response as Record<string, unknown> | undefined;
+        const data = response?.data as Record<string, unknown> | undefined;
+        
+        if (typeof data?.detail === 'string') {
+          errorMessage = data.detail;
+        } else if (typeof anyErr.message === 'string') {
+          errorMessage = anyErr.message;
+        } else {
+          // Fallback: try to stringify (but avoid [object Object])
+          try {
+            const serialized = JSON.stringify(err);
+            if (serialized && serialized !== '{}') {
+              errorMessage = serialized;
+            }
+          } catch {
+            // Keep the default error message
+          }
+        }
+      }
+      
+      setError(errorMessage);
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
@@ -299,6 +351,15 @@ function PhotoTab() {
         <h2 className="text-lg font-semibold">
           {t("PHOTO_TAB$TITLE", "Photo Generation")}
         </h2>
+        {healthStatus === "loading" && (
+          <span className="text-sm text-gray-500">Checking service...</span>
+        )}
+        {healthStatus === "unhealthy" && (
+          <span className="text-sm text-red-500">Service unavailable</span>
+        )}
+        {healthStatus === "healthy" && (
+          <span className="text-sm text-green-500">Service ready</span>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">

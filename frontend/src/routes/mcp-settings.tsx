@@ -6,6 +6,13 @@ import { useAddMcpServer } from "#/hooks/mutation/use-add-mcp-server";
 import { useUpdateMcpServer } from "#/hooks/mutation/use-update-mcp-server";
 import { I18nKey } from "#/i18n/declaration";
 
+// Helper function to generate unique IDs
+const generateUniqueId = (type: string): string => {
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 9);
+  return `${type}-${timestamp}-${randomPart}`;
+};
+
 import { MCPServerList } from "#/components/features/settings/mcp-settings/mcp-server-list";
 import { MCPServerForm } from "#/components/features/settings/mcp-settings/mcp-server-form";
 import { ConfirmationModal } from "#/components/shared/modals/confirmation-modal";
@@ -49,22 +56,22 @@ function MCPSettingsScreen() {
 
   // Convert servers to a unified format for display
   const allServers: MCPServerConfig[] = [
-    ...mcpConfig.sse_servers.map((server, index) => ({
-      id: `sse-${index}`,
+    ...mcpConfig.sse_servers.map((server) => ({
+      id: generateUniqueId("sse"),
       type: "sse" as const,
       url: typeof server === "string" ? server : server.url,
       api_key: typeof server === "object" ? server.api_key : undefined,
     })),
-    ...mcpConfig.stdio_servers.map((server, index) => ({
-      id: `stdio-${index}`,
+    ...mcpConfig.stdio_servers.map((server) => ({
+      id: generateUniqueId("stdio"),
       type: "stdio" as const,
       name: server.name,
       command: server.command,
       args: server.args,
       env: server.env,
     })),
-    ...mcpConfig.shttp_servers.map((server, index) => ({
-      id: `shttp-${index}`,
+    ...mcpConfig.shttp_servers.map((server) => ({
+      id: generateUniqueId("shttp"),
       type: "shttp" as const,
       url: typeof server === "string" ? server : server.url,
       api_key: typeof server === "object" ? server.api_key : undefined,

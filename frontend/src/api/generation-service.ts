@@ -144,7 +144,6 @@ export interface VideoHealthResponse {
 // Style presets
 export const STYLE_PRESETS = [
   { value: 'default', label: 'Default' },
-  { value: 'sdxl', label: 'SDXL' },
   { value: 'realistic', label: 'Realistic' },
   { value: 'anime', label: 'Anime' },
   { value: 'photorealistic', label: 'Photorealistic' },
@@ -162,9 +161,10 @@ export const IMAGE_RESOLUTIONS = [
 ] as const;
 
 export const VIDEO_RESOLUTIONS = [
-  { value: '256x256', label: '256x256' },
-  { value: '512x512', label: '512x512' },
-  { value: '1024x576', label: '1024x576 (SD)' },
+  { value: '1024x576', label: '1024x576 (Landscape)' },
+  { value: '768x1024', label: '768x1024 (Portrait)' },
+  { value: '576x1024', label: '576x1024 (Portrait)' },
+  { value: '1024x1024', label: '1024x1024 (Square)' },
 ] as const;
 
 // ControlNet types

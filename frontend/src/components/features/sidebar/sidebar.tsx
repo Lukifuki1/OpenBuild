@@ -1,5 +1,5 @@
 import React from "react";
-import { useLocation } from "react-router";
+import { useLocation, Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useGitUser } from "#/hooks/query/use-git-user";
 import { UserActions } from "./user-actions";
@@ -15,6 +15,7 @@ import { useConfig } from "#/hooks/query/use-config";
 import { displayErrorToast } from "#/utils/custom-toast-handlers";
 import { I18nKey } from "#/i18n/declaration";
 import { cn } from "#/utils/utils";
+import ImageIcon from "#/icons/image.svg?react";
 
 export function Sidebar() {
   const { t } = useTranslation();
@@ -89,6 +90,26 @@ export function Sidebar() {
               }
               disabled={settings?.email_verified === false}
             />
+            <Link
+              to="/photo"
+              className={cn(
+                "p-0 bg-transparent border-0",
+                pathname === "/photo" ? "text-white" : "text-[#B1B9D3]",
+              )}
+              aria-label={t(I18nKey.PHOTO_TAB$TITLE)}
+            >
+              <ImageIcon width={24} height={24} />
+            </Link>
+            <Link
+              to="/video"
+              className={cn(
+                "p-0 bg-transparent border-0",
+                pathname === "/video" ? "text-white" : "text-[#B1B9D3]",
+              )}
+              aria-label={t(I18nKey.VIDEO_TAB$TITLE)}
+            >
+              <ImageIcon width={24} height={24} />
+            </Link>
           </div>
 
           <div className="flex flex-row md:flex-col md:items-center gap-[26px]">
