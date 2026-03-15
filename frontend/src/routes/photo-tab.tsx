@@ -4,28 +4,23 @@ import ImageIcon from "#/icons/image.svg?react";
 import { cn } from "#/utils/utils";
 import {
   generateImage,
+  transformImage,
+  inpaintImage,
+  batchGenerateImages,
+  generateWithControlNet,
   ImageGenerationResponse,
+  STYLE_PRESETS,
+  IMAGE_RESOLUTIONS,
+  CONTROLNET_TYPES,
 } from "#/api/generation-service";
 
+type GenerationMode = "txt2img" | "img2img" | "inpaint" | "batch" | "controlnet";
 type GenerationState =
   | "idle"
   | "pending"
   | "generating"
   | "finished"
   | "failed";
-
-const RESOLUTIONS = [
-  { value: "512x512", label: "512x512 (Square)" },
-  { value: "1024x1024", label: "1024x1024 (Square)" },
-  { value: "1024x768", label: "1024x768 (Landscape)" },
-  { value: "768x1024", label: "768x1024 (Portrait)" },
-];
-
-const STYLES = [
-  { value: "default", label: "Default (FLUX)" },
-  { value: "sdxl", label: "SDXL (Stable Diffusion XL)" },
-  { value: "realistic", label: "Realistic" },
-];
 
 function PhotoTab() {
   const { t } = useTranslation();
