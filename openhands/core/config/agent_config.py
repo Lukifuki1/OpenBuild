@@ -60,6 +60,10 @@ class AgentConfig(BaseModel):
     """Whether to enable plan mode, which uses the long horizon system message and add the new tool - task_tracker - for planning, tracking and executing complex tasks."""
     enable_stuck_detection: bool = Field(default=True)
     """Whether to enable stuck/loop detection. When disabled, the agent will not automatically detect and recover from loops."""
+    enable_image_generation: bool = Field(default=False)
+    """Whether to enable image generation tool"""
+    enable_video_generation: bool = Field(default=False)
+    """Whether to enable video generation tool"""
     condenser: CondenserConfig = Field(
         # The default condenser is set to the conversation window condenser -- if
         # we use NoOp and the conversation hits the LLM context length limit,

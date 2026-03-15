@@ -2943,6 +2943,38 @@
     "tr": "OpenHands Logosu",
     "uk": "OpenHands лого"
   },
+  "BRANDING$OPENBUILD": {
+    "en": "OpenBuild",
+    "ja": "OpenBuild",
+    "zh-CN": "OpenBuild",
+    "zh-TW": "OpenBuild",
+    "ko-KR": "OpenBuild",
+    "de": "OpenBuild",
+    "no": "OpenBuild",
+    "it": "OpenBuild",
+    "pt": "OpenBuild",
+    "es": "OpenBuild",
+    "ar": "OpenBuild",
+    "fr": "OpenBuild",
+    "tr": "OpenBuild",
+    "uk": "OpenBuild"
+  },
+  "BRANDING$OPENBUILD_LOGO": {
+    "en": "OpenBuild Logo",
+    "ja": "OpenBuildロゴ",
+    "zh-CN": "OpenBuild标志",
+    "zh-TW": "OpenBuild標誌",
+    "ko-KR": "OpenBuild 로고",
+    "de": "OpenBuild Logo",
+    "no": "OpenBuild Logo",
+    "it": "Logo OpenBuild",
+    "pt": "Logo OpenBuild",
+    "es": "Logo de OpenBuild",
+    "ar": "شعار OpenBuild",
+    "fr": "Logo OpenBuild",
+    "tr": "OpenBuild Logosu",
+    "uk": "OpenBuild лого"
+  },
   "ERROR$GENERIC": {
     "en": "An error occurred",
     "ja": "エラーが発生しました",
@@ -14735,6 +14767,38 @@
     "de": "Code",
     "uk": "Код"
   },
+  "COMMON$PHOTO": {
+    "en": "Photo",
+    "ja": "写真",
+    "zh-CN": "图片",
+    "zh-TW": "圖片",
+    "ko-KR": "사진",
+    "no": "Bilde",
+    "it": "Foto",
+    "pt": "Foto",
+    "es": "Foto",
+    "ar": "صورة",
+    "fr": "Photo",
+    "tr": "Fotoğraf",
+    "de": "Foto",
+    "uk": "Фото"
+  },
+  "COMMON$VIDEO": {
+    "en": "Video",
+    "ja": "動画",
+    "zh-CN": "视频",
+    "zh-TW": "影片",
+    "ko-KR": "비디오",
+    "no": "Video",
+    "it": "Video",
+    "pt": "Vídeo",
+    "es": "Video",
+    "ar": "فيديو",
+    "fr": "Vidéo",
+    "tr": "Video",
+    "de": "Video",
+    "uk": "Відео"
+  },
   "COMMON$CREATE_NEW_BRANCH": {
     "en": "Create New Branch",
     "ja": "新しいブランチを作成",
@@ -16797,6 +16861,27 @@
   "PHOTO_TAB$EMPTY_MESSAGE": {
     "en": "Enter a prompt and click Generate to create an image"
   },
+  "PHOTO_TAB$ERROR_NO_PROMPT": {
+    "en": "Please enter a prompt"
+  },
+  "PHOTO_TAB$ERROR_GENERIC": {
+    "en": "An error occurred"
+  },
+  "PHOTO_TAB$STATUS_PENDING": {
+    "en": "Preparing..."
+  },
+  "PHOTO_TAB$STATUS_GENERATING": {
+    "en": "Generating image..."
+  },
+  "PHOTO_TAB$GENERATE_ANOTHER": {
+    "en": "Generate Another"
+  },
+  "PHOTO_TAB$PATH_LABEL": {
+    "en": "Path"
+  },
+  "PHOTO_TAB$IMAGE_ID": {
+    "en": "ID"
+  },
   "VIDEO_TAB$TITLE": {
     "en": "Video Generation"
   },
@@ -16811,6 +16896,15 @@
   },
   "VIDEO_TAB$FPS_LABEL": {
     "en": "Frame Rate"
+  },
+  "VIDEO_TAB$DURATION_DISPLAY": {
+    "en": "{{duration}}s"
+  },
+  "VIDEO_TAB$PATH_LABEL": {
+    "en": "Path"
+  },
+  "VIDEO_TAB$METADATA_DISPLAY": {
+    "en": "{{duration}}s • {{fps}} fps"
   },
   "VIDEO_TAB$RESOLUTION_LABEL": {
     "en": "Resolution"
@@ -16835,5 +16929,38 @@
   },
   "VIDEO_TAB$EMPTY_NOTE": {
     "en": "Video generation may take longer than image generation"
+  },
+  "VIDEO_TAB$ERROR_NO_PROMPT": {
+    "en": "Please enter a prompt"
+  },
+  "VIDEO_TAB$ERROR_GENERIC": {
+    "en": "An error occurred"
+  },
+  "VIDEO_TAB$STATUS_PENDING": {
+    "en": "Preparing..."
+  },
+  "VIDEO_TAB$STATUS_GENERATING": {
+    "en": "Generating video..."
+  },
+  "VIDEO_TAB$GENERATE_ANOTHER": {
+    "en": "Generate Another"
+  },
+  "VIDEO_TAB$METADATA_TITLE": {
+    "en": "Video Details"
+  },
+  "VIDEO_TAB$MODEL_LABEL": {
+    "en": "Model"
+  },
+  "VIDEO_TAB$DOWNLOAD_VIDEO": {
+    "en": "Download Video"
+  },
+  "VIDEO_TAB$VIDEO_ID": {
+    "en": "ID"
+  },
+  "VIDEO_TAB$DURATION_UNIT": {
+    "en": "s"
+  },
+  "VIDEO_TAB$FPS_UNIT": {
+    "en": "fps"
   }
 }

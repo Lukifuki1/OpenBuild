@@ -35,6 +35,12 @@ from openhands.agenthub.codeact_agent.tools.task_tracker import (
     create_task_tracker_tool,
 )
 from openhands.agenthub.codeact_agent.tools.think import ThinkTool
+from openhands.agenthub.codeact_agent.tools.image_generation import (
+    create_generate_image_tool,
+)
+from openhands.agenthub.codeact_agent.tools.video_generation import (
+    create_generate_video_tool,
+)
 from openhands.controller.agent import Agent
 from openhands.controller.state.state import State
 from openhands.core.config import AgentConfig
@@ -158,6 +164,10 @@ class CodeActAgent(Agent):
                     runtime_type=self.config.runtime,
                 )
             )
+        if self.config.enable_image_generation:
+            tools.append(create_generate_image_tool())
+        if self.config.enable_video_generation:
+            tools.append(create_generate_video_tool())
         return tools
 
     def reset(self) -> None:

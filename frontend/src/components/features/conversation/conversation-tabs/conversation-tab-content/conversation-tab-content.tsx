@@ -17,6 +17,8 @@ const ServedTab = lazy(() => import("#/routes/served-tab"));
 const VSCodeTab = lazy(() => import("#/routes/vscode-tab"));
 const PlannerTab = lazy(() => import("#/routes/planner-tab"));
 const TaskListTab = lazy(() => import("#/routes/task-list-tab"));
+const PhotoTab = lazy(() => import("#/routes/photo-tab"));
+const VideoTab = lazy(() => import("#/routes/video-tab"));
 
 const TAB_CONFIG = {
   tasklist: {
@@ -46,6 +48,14 @@ const TAB_CONFIG = {
   planner: {
     component: PlannerTab,
     titleKey: I18nKey.COMMON$PLANNER,
+  },
+  photo: {
+    component: PhotoTab,
+    titleKey: I18nKey.COMMON$PHOTO,
+  },
+  video: {
+    component: VideoTab,
+    titleKey: I18nKey.COMMON$VIDEO,
   },
 };
 

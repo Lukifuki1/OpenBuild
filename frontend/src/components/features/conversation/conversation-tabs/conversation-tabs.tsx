@@ -8,6 +8,8 @@ import VSCodeIcon from "#/icons/vscode.svg?react";
 import ThreeDotsVerticalIcon from "#/icons/three-dots-vertical.svg?react";
 import LessonPlanIcon from "#/icons/lesson-plan.svg?react";
 import DoubleCheckIcon from "#/icons/double-check.svg?react";
+import ImageIcon from "#/icons/image.svg?react";
+import PlayIcon from "#/icons/play.svg?react";
 import { cn } from "#/utils/utils";
 import { useConversationLocalStorageState } from "#/utils/conversation-local-storage";
 import { ConversationTabNav } from "./conversation-tab-nav";
@@ -121,6 +123,24 @@ export function ConversationTabs() {
       tooltipContent: t(I18nKey.COMMON$BROWSER),
       tooltipAriaLabel: t(I18nKey.COMMON$BROWSER),
       label: t(I18nKey.COMMON$BROWSER),
+    },
+    {
+      tabValue: "photo",
+      isActive: isTabActive("photo"),
+      icon: ImageIcon,
+      onClick: () => selectTab("photo"),
+      tooltipContent: t(I18nKey.COMMON$PHOTO),
+      tooltipAriaLabel: t(I18nKey.COMMON$PHOTO),
+      label: t(I18nKey.COMMON$PHOTO),
+    },
+    {
+      tabValue: "video",
+      isActive: isTabActive("video"),
+      icon: PlayIcon,
+      onClick: () => selectTab("video"),
+      tooltipContent: t(I18nKey.COMMON$VIDEO),
+      tooltipAriaLabel: t(I18nKey.COMMON$VIDEO),
+      label: t(I18nKey.COMMON$VIDEO),
     },
   ];
 

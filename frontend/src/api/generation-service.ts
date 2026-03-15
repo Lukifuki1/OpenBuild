@@ -1,10 +1,10 @@
 /**
  * Generation Service API Client
- * 
+ *
  * Provides methods for image and video generation via the OpenHands backend API.
  */
 
-import { openHands } from './open-hands-axios';
+import { openHands } from "./open-hands-axios";
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -54,11 +54,11 @@ export interface ImageToVideoRequest {
  * @returns Promise resolving to the generated image response
  */
 export async function generateImage(
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest,
 ): Promise<ImageGenerationResponse> {
   const response = await openHands.post<ImageGenerationResponse>(
-    '/api/v1/generate-image',
-    request
+    "/api/v1/generate-image",
+    request,
   );
   return response.data;
 }
@@ -69,11 +69,11 @@ export async function generateImage(
  * @returns Promise resolving to the generated video response
  */
 export async function generateVideo(
-  request: VideoGenerationRequest
+  request: VideoGenerationRequest,
 ): Promise<VideoGenerationResponse> {
   const response = await openHands.post<VideoGenerationResponse>(
-    '/api/v1/generate-video',
-    request
+    "/api/v1/generate-video",
+    request,
   );
   return response.data;
 }
@@ -84,11 +84,11 @@ export async function generateVideo(
  * @returns Promise resolving to the generated video response
  */
 export async function generateVideoFromImage(
-  request: ImageToVideoRequest
+  request: ImageToVideoRequest,
 ): Promise<VideoGenerationResponse> {
   const response = await openHands.post<VideoGenerationResponse>(
-    '/api/v1/generate-video-from-image',
-    request
+    "/api/v1/generate-video-from-image",
+    request,
   );
   return response.data;
 }
@@ -102,7 +102,7 @@ export async function checkImageGenerationHealth(): Promise<{
   gpu_available: boolean;
   cached_models: string[];
 }> {
-  const response = await openHands.get('/api/v1/image-generation/health');
+  const response = await openHands.get("/api/v1/image-generation/health");
   return response.data;
 }
 
@@ -116,6 +116,6 @@ export async function checkVideoGenerationHealth(): Promise<{
   gpu_available: boolean;
   cached_models: string[];
 }> {
-  const response = await openHands.get('/api/v1/video-generation/health');
+  const response = await openHands.get("/api/v1/video-generation/health");
   return response.data;
 }
