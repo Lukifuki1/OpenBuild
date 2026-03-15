@@ -544,7 +544,7 @@
     "uk": "Прочитайте це"
   },
   "AUTH$LOGGING_BACK_IN": {
-    "en": "Logging back into OpenHands...",
+    "en": "Logging back into OpenBuild...",
     "ja": "OpenHandsに再ログインしています...",
     "zh-CN": "正在重新登录OpenHands...",
     "zh-TW": "正在重新登錄OpenHands...",
@@ -1390,22 +1390,6 @@
     "tr": "Hadi İnşa Etmeye Başlayalım!",
     "de": "Lass uns anfangen zu bauen!",
     "uk": "Почнімо будувати!"
-  },
-  "HOME$OPENHANDS_DESCRIPTION": {
-    "en": "OpenHands makes it easy to build and maintain software using AI-driven development.",
-    "ja": "OpenHandsはAI駆動の開発を使用してソフトウェアの開発と維持を容易にします。",
-    "zh-CN": "OpenHands使用AI驱动的开发方式，轻松构建和维护软件。",
-    "zh-TW": "OpenHands使用AI驅動的開發方式，輕鬆構建和維護軟件。",
-    "ko-KR": "OpenHands는 AI 기반 개발을 사용하여 소프트웨어를 쉽게 구축하고 유지할 수 있게 합니다.",
-    "no": "OpenHands gjør det enkelt å bygge og vedlikeholde programvare ved hjelp av AI-drevet utvikling.",
-    "it": "OpenHands rende facile costruire e mantenere software utilizzando lo sviluppo guidato dall'IA.",
-    "pt": "OpenHands facilita a construção e manutenção de software usando desenvolvimento orientado por IA.",
-    "es": "OpenHands facilita la construcción y el mantenimiento de software utilizando desarrollo impulsado por IA.",
-    "ar": "يجعل OpenHands من السهل بناء وصيانة البرمجيات باستخدام التطوير المدعوم بالذكاء الاصطناعي.",
-    "fr": "OpenHands facilite la création et la maintenance de logiciels grâce au développement piloté par l'IA.",
-    "tr": "OpenHands, yapay zeka destekli geliştirme kullanarak yazılım oluşturmayı ve sürdürmeyi kolaylaştırır.",
-    "de": "OpenHands macht es einfach, Software mit KI-gesteuerter Entwicklung zu erstellen und zu warten.",
-    "uk": "OpenHands спрощує створення та підтримку програмного забезпечення за допомогою розробки на основі штучного інтелекту."
   },
   "HOME$NOT_SURE_HOW_TO_START": {
     "en": "Not sure how to start?",
@@ -2912,7 +2896,7 @@
     "uk": "аватар користувача"
   },
   "BRANDING$OPENHANDS": {
-    "en": "OpenHands",
+    "en": "OpenBuild",
     "ja": "OpenHands",
     "zh-CN": "OpenHands",
     "zh-TW": "OpenHands",
@@ -2942,38 +2926,6 @@
     "fr": "Logo OpenHands",
     "tr": "OpenHands Logosu",
     "uk": "OpenHands лого"
-  },
-  "BRANDING$OPENBUILD": {
-    "en": "OpenBuild",
-    "ja": "OpenBuild",
-    "zh-CN": "OpenBuild",
-    "zh-TW": "OpenBuild",
-    "ko-KR": "OpenBuild",
-    "de": "OpenBuild",
-    "no": "OpenBuild",
-    "it": "OpenBuild",
-    "pt": "OpenBuild",
-    "es": "OpenBuild",
-    "ar": "OpenBuild",
-    "fr": "OpenBuild",
-    "tr": "OpenBuild",
-    "uk": "OpenBuild"
-  },
-  "BRANDING$OPENBUILD_LOGO": {
-    "en": "OpenBuild Logo",
-    "ja": "OpenBuildロゴ",
-    "zh-CN": "OpenBuild标志",
-    "zh-TW": "OpenBuild標誌",
-    "ko-KR": "OpenBuild 로고",
-    "de": "OpenBuild Logo",
-    "no": "OpenBuild Logo",
-    "it": "Logo OpenBuild",
-    "pt": "Logo OpenBuild",
-    "es": "Logo de OpenBuild",
-    "ar": "شعار OpenBuild",
-    "fr": "Logo OpenBuild",
-    "tr": "OpenBuild Logosu",
-    "uk": "OpenBuild лого"
   },
   "ERROR$GENERIC": {
     "en": "An error occurred",
@@ -6272,8 +6224,8 @@
     "uk": "Завантажити зображення"
   },
   "CHAT_INTERFACE$INITIAL_MESSAGE": {
-    "en": "Hi! I'm OpenHands, an AI Software Engineer. What would you like to build with me today?",
-    "zh-CN": "你好！我是 OpenHands，一名 AI 软件工程师。今天想和我一起编写什么程序呢?",
+    "en": "Hi! I am OpenBuild, an AI Software Engineer. What would you like to build with me today?",
+    "zh-CN": "你好！我是 OpenBuild，一名 AI 软件工程师。今天想和我一起编写什么程序呢?",
     "de": "Hi! Ich bin OpenHands, ein KI-Softwareingenieur. Was möchten Sie heute mit mir erstellen?",
     "ko-KR": "안녕하세요! 저는 오픈데빈(OpenHands), AI 소프트웨어 엔지니어입니다. 오늘은 저와 함께 무엇을 만들어 볼까요?",
     "no": "Hi! I'm OpenHands, an AI Software Engineer. What would you like to build with me today?",
@@ -6688,7 +6640,7 @@
     "uk": "Натисніть тут, щоб отримати інструкції"
   },
   "SETTINGS$NEED_OPENHANDS_ACCOUNT": {
-    "en": "Need an OpenHands Account?",
+    "en": "Need an OpenBuild account?",
     "ja": "OpenHandsアカウントが必要ですか？",
     "zh-CN": "需要OpenHands账户？",
     "zh-TW": "需要OpenHands帳戶？",
@@ -6800,7 +6752,7 @@
     "uk": "Ключі API дозволяють вам програмно автентифікуватися за допомогою API OpenHands. Зберігайте свої ключі API в безпеці; будь-хто, хто має ваш ключ API, може отримати доступ до вашого облікового запису. Для отримання додаткової інформації про використання API, перегляньте нашу <a>документацію API</a>."
   },
   "SETTINGS$OPENHANDS_API_KEY_HELP": {
-    "en": "You can find your OpenHands API Key in the <a>API Keys</a> tab of OpenHands Cloud.",
+    "en": "You can find your OpenBuild API key in the API Keys tab in OpenBuild Cloud.",
     "ja": "OpenHands APIキーはOpenHands Cloudの<a>APIキー</a>タブで確認できます。",
     "zh-CN": "您可以在OpenHands Cloud的<a>API密钥</a>标签页中找到您的OpenHands API密钥。",
     "zh-TW": "您可以在OpenHands Cloud的<a>API密鑰</a>標籤頁中找到您的OpenHands API密鑰。",
@@ -6816,7 +6768,7 @@
     "uk": "Ви можете знайти свій ключ API OpenHands у вкладці <a>Ключі API</a> OpenHands Cloud."
   },
   "SETTINGS$OPENHANDS_API_KEY_HELP_TEXT": {
-    "en": "You can find your OpenHands API Key in the",
+    "en": "You can find your OpenBuild API key in the",
     "ja": "OpenHands APIキーは",
     "zh-CN": "您可以在",
     "zh-TW": "您可以在",
@@ -6832,7 +6784,7 @@
     "uk": "Ви можете знайти свій ключ API OpenHands у"
   },
   "SETTINGS$OPENHANDS_API_KEY_HELP_SUFFIX": {
-    "en": "tab of OpenHands Cloud.",
+    "en": "tab in OpenBuild Cloud.",
     "ja": "タブで確認できます。",
     "zh-CN": "标签页中找到您的OpenHands API密钥。",
     "zh-TW": "標籤頁中找到您的OpenHands API密鑰。",
@@ -7968,7 +7920,7 @@
     "uk": "Запит не вдалося виконати через внутрішню помилку сервера."
   },
   "STATUS$ERROR_LLM_OUT_OF_CREDITS": {
-    "en": "You're out of OpenHands Credits. <a>Add funds</a>",
+    "en": "You have run out of OpenBuild credits. Add credit",
     "ja": "OpenHandsクレジットが不足しています。<a>資金を追加</a>",
     "zh-CN": "您的OpenHands点数已用完。<a>添加资金</a>",
     "zh-TW": "您的OpenHands點數已用完。<a>添加資金</a>",
@@ -10640,7 +10592,7 @@
     "uk": "Клас агента:"
   },
   "SYSTEM_MESSAGE_MODAL$OPENHANDS_VERSION": {
-    "en": "OpenHands Version:",
+    "en": "OpenBuild Version:",
     "zh-CN": "OpenHands 版本：",
     "zh-TW": "OpenHands 版本：",
     "ko-KR": "OpenHands 버전:",
@@ -12048,7 +12000,7 @@
     "uk": "Підключити провайдера Git для управління секретами"
   },
   "SETTINGS$OPENHANDS_API_KEYS": {
-    "en": "OpenHands API Keys",
+    "en": "OpenBuild API Keys",
     "ja": "OpenHands APIキー",
     "zh-CN": "OpenHands API密钥",
     "zh-TW": "OpenHands API密鑰",
@@ -16962,5 +16914,53 @@
   },
   "VIDEO_TAB$FPS_UNIT": {
     "en": "fps"
+  },
+  "HOME$BUILD_DESCRIPTION": {
+    "en": "OpenBuild makes it easy to build and maintain software using AI-driven development.",
+    "ja": "OpenHandsはAI駆動の開発を使用してソフトウェアの開発と維持を容易にします。",
+    "zh-CN": "OpenHands使用AI驱动的开发方式，轻松构建和维护软件。",
+    "zh-TW": "OpenHands使用AI驅動的開發方式，輕鬆構建和維護軟件。",
+    "ko-KR": "OpenHands는 AI 기반 개발을 사용하여 소프트웨어를 쉽게 구축하고 유지할 수 있게 합니다.",
+    "no": "OpenHands gjør det enkelt å bygge og vedlikeholde programvare ved hjelp av AI-drevet utvikling.",
+    "it": "OpenHands rende facile costruire e mantenere software utilizzando lo sviluppo guidato dall'IA.",
+    "pt": "OpenHands facilita a construção e manutenção de software usando desenvolvimento orientado por IA.",
+    "es": "OpenHands facilita la construcción y el mantenimiento de software utilizando desarrollo impulsado por IA.",
+    "ar": "يجعل OpenHands من السهل بناء وصيانة البرمجيات باستخدام التطوير المدعوم بالذكاء الاصطناعي.",
+    "fr": "OpenHands facilite la création et la maintenance de logiciels grâce au développement piloté par l'IA.",
+    "tr": "OpenHands, yapay zeka destekli geliştirme kullanarak yazılım oluşturmayı ve sürdürmeyi kolaylaştırır.",
+    "de": "OpenHands macht es einfach, Software mit KI-gesteuerter Entwicklung zu erstellen und zu warten.",
+    "uk": "OpenHands спрощує створення та підтримку програмного забезпечення за допомогою розробки на основі штучного інтелекту."
+  },
+  "BRANDING$BUILD": {
+    "en": "OpenBuild",
+    "ja": "OpenBuild",
+    "zh-CN": "OpenBuild",
+    "zh-TW": "OpenBuild",
+    "ko-KR": "OpenBuild",
+    "de": "OpenBuild",
+    "no": "OpenBuild",
+    "it": "OpenBuild",
+    "pt": "OpenBuild",
+    "es": "OpenBuild",
+    "ar": "OpenBuild",
+    "fr": "OpenBuild",
+    "tr": "OpenBuild",
+    "uk": "OpenBuild"
+  },
+  "BRANDING$BUILD_LOGO": {
+    "en": "OpenBuild Logo",
+    "ja": "OpenBuildロゴ",
+    "zh-CN": "OpenBuild标志",
+    "zh-TW": "OpenBuild標誌",
+    "ko-KR": "OpenBuild 로고",
+    "de": "OpenBuild Logo",
+    "no": "OpenBuild Logo",
+    "it": "Logo OpenBuild",
+    "pt": "Logo OpenBuild",
+    "es": "Logo de OpenBuild",
+    "ar": "شعار OpenBuild",
+    "fr": "Logo OpenBuild",
+    "tr": "OpenBuild Logosu",
+    "uk": "OpenBuild лого"
   }
 }

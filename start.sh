@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# OpenHands v1.5.0 (source) — host-native run
+# OpenBuild v1.5.0 (source) — host-native run
 # - UI port: 3000
 # - LM Studio port: 1234
 # - Docker used only for sandbox/runtime containers
@@ -23,7 +23,7 @@ OPENHANDS_PORT=3000
 LMSTUDIO_PORT=1234
 LMSTUDIO_MODEL="qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive"
 WORKSPACE_DIR="$HOME/workspace"
-OPENHANDS_CONFIG_DIR="$HOME/.openhands"
+OPENHANDS_CONFIG_DIR="$HOME/.openbuild"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -41,7 +41,7 @@ trap cleanup EXIT
 
 echo ""
 echo "============================================"
-echo "   OpenHands v1.5.0 — host-native setup"
+echo "   OpenBuild v1.5.0 — host-native setup"
 echo "============================================"
 echo ""
 
@@ -154,7 +154,7 @@ export OH_DOCKER_EXTRA_HOSTS="host.docker.internal:host-gateway"
 export OH_ENABLE_BROWSER=false
 
 # Also disable MCP tools (create_pr, create_mr, create_bitbucket_pr,
-# create_azure_devops_pr) which the default OpenHands MCP server adds.
+# create_azure_devops_pr) which the default OpenBuild MCP server adds.
 # These 4 extra tools push the total from 5 to 9, still above the ~5
 # threshold for local models.  With MCP disabled the agent has exactly
 # 5 tools: terminal, file_editor, task_tracker, finish, think.
@@ -187,7 +187,7 @@ export IMAGE_MODEL="black-forest-labs/FLUX.1-schnell"
 export GPU_ENABLED=true
 export MAX_IMAGE_SIZE=1024
 
-# Video generation settings  
+# Video generation settings
 export VIDEO_RATE_LIMIT=5
 export VIDEO_MODEL="damo-vilab/text-to-video-ms-1.7b"
 export MAX_VIDEO_DURATION=30
@@ -195,7 +195,7 @@ export MAX_VIDEO_DURATION=30
 ok "Generation Services: OUTPUT_DIR=${WORKSPACE_OUTPUT_DIR}"
 ok "Generation Services: IMAGE_RATE_LIMIT=${IMAGE_RATE_LIMIT}, VIDEO_RATE_LIMIT=${VIDEO_RATE_LIMIT}"
 
-# Write a fresh settings.json so the OpenHands server has the correct
+# Write a fresh settings.json so the OpenBuild server has the correct
 # LLM configuration from the very first request.  Without this file the
 # GET /api/settings endpoint returns 404, the frontend shows a blank
 # "AI Provider Configuration" dialog, and conversations start with no
@@ -221,14 +221,14 @@ ok "LLM_BASE_URL=${LLM_BASE_URL}"
 ok "SANDBOX_VOLUMES=${SANDBOX_VOLUMES}"
 
 # ── Step 6: Launch ────────────────────────────────────────────
-info "Korak 6/6: Zaganjam OpenHands server (uvicorn) na portu ${OPENHANDS_PORT}..."
+info "Korak 6/6: Zaganjam OpenBuild server (uvicorn) na portu ${OPENHANDS_PORT}..."
 echo ""
 echo "============================================"
 ok "UI: http://localhost:${OPENHANDS_PORT}"
 echo "============================================"
 echo ""
-echo "OpenHands tece na hostu. Docker se uporablja samo za sandbox/runtime."
+echo "OpenBuild tece na hostu. Docker se uporablja samo za sandbox/runtime."
 echo "Ustavi: CTRL+C"
 echo ""
 
-exec poetry run uvicorn openhands.server.listen:app --host 0.0.0.0 --port "${OPENHANDS_PORT}"
+exec poetry run uvicorn openbuild.server.listen:app --host 0.0.0.0 --port "${OPENHANDS_PORT}"

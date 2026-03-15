@@ -107,10 +107,10 @@ dependencies = [
 
 # Optional dependencies for image and video generation
 optional-dependencies.generation = [
-  "diffusers>=0.31.0",
-  "transformers>=4.46.0",
-  "accelerate>=0.34.0",
-  "opencv-python>=4.10.0",
+  "accelerate>=0.34",
+  "diffusers>=0.31",
+  "opencv-python>=4.10",
+  "transformers>=4.46",
 ]
 
 optional-dependencies.third_party_runtimes = [
@@ -119,8 +119,8 @@ optional-dependencies.third_party_runtimes = [
   "modal>=0.66.26,<1.2",
   "runloop-api-client==0.50",
 ]
-urls.Homepage = "https://github.com/All-Hands-AI/OpenBuild"
-urls.Repository = "https://github.com/All-Hands-AI/OpenBuild"
+urls.Homepage = "https://github.com/Lukifuki1/OpenBuild"
+urls.Repository = "https://github.com/Lukifuki1/OpenBuild"
 
 [dependency-groups]
 dev = [
@@ -157,7 +157,7 @@ description = "OpenBuild: Code Less, Make More"
 authors = [ "OpenBuild" ]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/All-Hands-AI/OpenBuild"
+repository = "https://github.com/Lukifuki1/OpenBuild"
 packages = [
   { include = "openhands/**/*" },
   { include = "third_party/**/*" },

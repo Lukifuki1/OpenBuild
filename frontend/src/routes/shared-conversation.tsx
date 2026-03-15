@@ -60,7 +60,7 @@ export default function SharedConversation() {
           <Link
             to="/"
             className="flex-shrink-0"
-            aria-label={t(I18nKey.BRANDING$OPENHANDS_LOGO)}
+            aria-label={t(I18nKey.BRANDING$BUILD_LOGO)}
           >
             <img
               src={OpenBuildLogo}

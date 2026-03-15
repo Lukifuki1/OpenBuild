@@ -1,5 +1,5 @@
 SHELL=/usr/bin/env bash
-# Makefile for OpenHands project
+# Makefile for OpenBuild project
 
 # Variables
 BACKEND_HOST ?= "127.0.0.1"
@@ -248,7 +248,7 @@ build-frontend:
 # Start backend
 start-backend:
 	@echo "$(YELLOW)Starting backend...$(RESET)"
-	@poetry run uvicorn openhands.server.listen:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload --reload-exclude "./workspace"
+	@poetry run uvicorn OpenBuild.server.listen:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload --reload-exclude "./workspace"
 
 # Start frontend
 start-frontend:
@@ -270,7 +270,7 @@ _run_setup:
 	fi
 	@mkdir -p logs
 	@echo "$(YELLOW)Starting backend server...$(RESET)"
-	@poetry run uvicorn openhands.server.listen:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) &
+	@poetry run uvicorn OpenBuild.server.listen:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) &
 	@echo "$(YELLOW)Waiting for the backend to start...$(RESET)"
 	@until nc -z localhost $(BACKEND_PORT); do sleep 0.1; done
 	@echo "$(GREEN)Backend started successfully.$(RESET)"
@@ -331,7 +331,7 @@ setup-config-basic:
 	> config.toml
 	@echo "$(GREEN)config.toml created.$(RESET)"
 
-openhands-cloud-run:
+OpenBuild-cloud-run:
 	@$(MAKE) run BACKEND_HOST="0.0.0.0" BACKEND_PORT="12000" FRONTEND_HOST="0.0.0.0" FRONTEND_PORT="12001"
 
 # Develop in container
@@ -347,7 +347,7 @@ docker-dev:
 # Clean up all caches
 clean:
 	@echo "$(YELLOW)Cleaning up caches...$(RESET)"
-	@rm -rf openhands/.cache
+	@rm -rf OpenBuild/.cache
 	@echo "$(GREEN)Caches cleaned up successfully.$(RESET)"
 
 # Help
@@ -356,16 +356,16 @@ help:
 	@echo "Targets:"
 	@echo "  $(GREEN)build$(RESET)               - Build project, including environment setup and dependencies."
 	@echo "  $(GREEN)lint$(RESET)                - Run linters on the project."
-	@echo "  $(GREEN)setup-config$(RESET)        - Setup the configuration for OpenHands by providing LLM API key,"
+	@echo "  $(GREEN)setup-config$(RESET)        - Setup the configuration for OpenBuild by providing LLM API key,"
 	@echo "                        LLM Model name, and workspace directory."
-	@echo "  $(GREEN)start-backend$(RESET)       - Start the backend server for the OpenHands project."
-	@echo "  $(GREEN)start-frontend$(RESET)      - Start the frontend server for the OpenHands project."
-	@echo "  $(GREEN)run$(RESET)                 - Run the OpenHands application, starting both backend and frontend servers."
+	@echo "  $(GREEN)start-backend$(RESET)       - Start the backend server for the OpenBuild project."
+	@echo "  $(GREEN)start-frontend$(RESET)      - Start the frontend server for the OpenBuild project."
+	@echo "  $(GREEN)run$(RESET)                 - Run the OpenBuild application, starting both backend and frontend servers."
 	@echo "                        Backend Log file will be stored in the 'logs' directory."
-	@echo "  $(GREEN)docker-dev$(RESET)          - Build and run the OpenHands application in Docker."
-	@echo "  $(GREEN)docker-run$(RESET)          - Run the OpenHands application, starting both backend and frontend servers in Docker."
+	@echo "  $(GREEN)docker-dev$(RESET)          - Build and run the OpenBuild application in Docker."
+	@echo "  $(GREEN)docker-run$(RESET)          - Run the OpenBuild application, starting both backend and frontend servers in Docker."
 	@echo "  $(GREEN)help$(RESET)                - Display this help message, providing information on available targets."
 
 # Phony targets
-.PHONY: build check-dependencies check-system check-python check-npm check-nodejs check-docker check-poetry install-python-dependencies install-frontend-dependencies install-pre-commit-hooks lint-backend lint-frontend lint test-frontend test build-frontend start-backend start-frontend _run_setup run run-wsl setup-config setup-config-prompts setup-config-basic openhands-cloud-run docker-dev docker-run clean help
+.PHONY: build check-dependencies check-system check-python check-npm check-nodejs check-docker check-poetry install-python-dependencies install-frontend-dependencies install-pre-commit-hooks lint-backend lint-frontend lint test-frontend test build-frontend start-backend start-frontend _run_setup run run-wsl setup-config setup-config-prompts setup-config-basic OpenBuild-cloud-run docker-dev docker-run clean help
 .PHONY: kind
