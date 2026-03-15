@@ -19,9 +19,29 @@ import {
   ImageToImageRequest,
   InpaintingRequest,
   BatchImageGenerationRequest,
+  // New API functions for Faza 2
+  upscaleImage,
+  applyStyleTransfer,
+  captionImage,
+  detectObjects,
+  removeBackground,
+  addToQueue,
+  getQueueStatus,
+  listStorage,
+  deleteStorageFile,
+  getCacheStats,
+  clearCache,
+  getHealthStatus,
+  UpscaleImageRequest,
+  StyleTransferRequest,
+  CaptionImageRequest,
+  ObjectDetectionRequest,
+  RemoveBackgroundRequest,
+  QueueJobRequest,
+  StorageItem,
 } from "#/api/generation-service";
 
-type GenerationMode = "txt2img" | "img2img" | "inpaint" | "batch" | "controlnet";
+type GenerationMode = "txt2img" | "img2img" | "inpaint" | "batch" | "controlnet" | "upscale" | "style-transfer" | "caption" | "detect-objects" | "remove-bg";
 type GenerationState =
   | "idle"
   | "pending"
@@ -35,31 +55,32 @@ const MODE_OPTIONS: { value: GenerationMode; label: string; icon: string }[] = [
   { value: "inpaint", label: "Inpainting", icon: "INP" },
   { value: "batch", label: "Batch", icon: "BATCH" },
   { value: "controlnet", label: "ControlNet", icon: "CN" },
+  { value: "upscale", label: "Upscale", icon: "UPSCALE" },
+  { value: "style-transfer", label: "Style Transfer", icon: "STYLE" },
+  { value: "caption", label: "Caption", icon: "CAPTION" },
+  { value: "detect-objects", label: "Detect Objects", icon: "DETECT" },
+  { value: "remove-bg", label: "Remove BG", icon: "BG" },
 ];
 
-function PhotoTab() {
-  const { t } = useTranslation();
-  const [generationMode, setGenerationMode] = useState<GenerationMode>("txt2img");
-  const [prompt, setPrompt] = useState("");
-  const [controlnetType, setControlnetType] = useState<string>("canny");
-  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
-  const [uploadedMask, setUploadedMask] = useState<File | null>(null);
-  const [uploadedControlImage, setUploadedControlImage] = useState<File | null>(null);
-  const [imageStrength, setImageStrength] = useState(0.7);
-  const [batchPrompts, setBatchPrompts] = useState<string>("");
-  const [resolution, setResolution] = useState("1024x1024");
-  const [style, setStyle] = useState("default");
-  const [generationState, setGenerationState] =
-    useState<GenerationState>("idle");
-  const [progress, setProgress] = useState(0);
-  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
-  const [generatedImageIds, setGeneratedImageIds] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [healthStatus, setHealthStatus] = useState<"loading" | "healthy" | "unhealthy">("loading");
-  const progressIntervalRef = useRef<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const maskInputRef = useRef<HTMLInputElement>(null);
-  const controlImageInputRef = useRef<HTMLInputElement>(null);
+// New state variables for Faza 2 features
+const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+const [generatedImageIds, setGeneratedImageIds] = useState<string[]>([]);
+const [error, setError] = useState<string | null>(null);
+const [healthStatus, setHealthStatus] = useState<"loading" | "healthy" | "unhealthy">("loading");
+const progressIntervalRef = useRef<number | null>(null);
+const fileInputRef = useRef<HTMLInputElement>(null);
+const maskInputRef = useRef<HTMLInputElement>(null);
+const controlImageInputRef = useRef<HTMLInputElement>(null);
+
+// New state for Faza 2 features
+const [imageHistory, setImageHistory] = useState<StorageItem[]>([]);
+const [promptHistory, setPromptHistory] = useState<string[]>([]);
+const [selectedModel, setSelectedModel] = useState("black-forest-labs/FLUX.1-schnell");
+const [showComparison, setShowComparison] = useState(false);
+const [comparisonImage, setComparisonImage] = useState<string | null>(null);
+const [queueJobId, setQueueJobId] = useState<string | null>(null);
+const [queueStatus, setQueueStatus] = useState<any>(null);
+const [cacheStats, setCacheStats] = useState<any>(null);
 
   // Cleanup interval on unmount
   useEffect(
@@ -1040,6 +1061,645 @@ function PhotoTab() {
       </div>
     </div>
   );
-}
 
+  // ============================================================================
+  // NEW FUNCTIONS - Faza 2 Frontend Enhancement
+  // ============================================================================
+
+  /**
+   * Load image history from storage
+   */
+  const loadImageHistory = async () => {
+    try {
+      const items = await listStorage();
+      setImageHistory(items);
+    } catch (err) {
+      console.error("Failed to load image history:", err);
+    }
+  };
+
+  /**
+   * Save prompt to history
+   */
+  const savePromptToHistory = (newPrompt: string) => {
+    setPromptHistory(prev => {
+      const updated = [newPrompt, ...prev.filter(p => p !== newPrompt)].slice(0, 20);
+      return updated;
+    });
+  };
+
+  /**
+   * Upscale image
+   */
+  const handleUpscaleImage = async () => {
+    if (!uploadedImage) {
+      setError("Please upload an image first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      // Convert file to base64 and save temporarily (simplified for demo)
+      const dataUrl = await fileToDataUrl(uploadedImage);
+      
+      const response = await upscaleImage({
+        image_path: dataUrl,
+        scale_factor: 2.0,
+        method: 'real-esrgan',
+      });
+
+      setGeneratedImages(prev => [...prev, response.image_path]);
+      setGeneratedImageIds(prev => [...prev, response.image_id]);
+      setGenerationState("finished");
+      
+      // Reload history
+      loadImageHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upscale failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Apply style transfer
+   */
+  const handleStyleTransfer = async () => {
+    if (!uploadedImage || !uploadedControlImage) {
+      setError("Please upload both content and style images");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const contentDataUrl = await fileToDataUrl(uploadedImage);
+      const styleDataUrl = await fileToDataUrl(uploadedControlImage);
+
+      const response = await applyStyleTransfer({
+        content_image_path: contentDataUrl,
+        style_image_path: styleDataUrl,
+        style_strength: 0.7,
+      });
+
+      setGeneratedImages(prev => [...prev, response.image_path]);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Style transfer failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Generate caption for image
+   */
+  const handleCaptionImage = async () => {
+    if (!uploadedImage) {
+      setError("Please upload an image first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const dataUrl = await fileToDataUrl(uploadedImage);
+
+      const response = await captionImage({
+        image_path: dataUrl,
+      });
+
+      alert(`Caption: ${response.caption}\nConfidence: ${(response.confidence * 100).toFixed(1)}%`);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Captioning failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Detect objects in image
+   */
+  const handleDetectObjects = async () => {
+    if (!uploadedImage) {
+      setError("Please upload an image first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const dataUrl = await fileToDataUrl(uploadedImage);
+
+      const response = await detectObjects({
+        image_path: dataUrl,
+      });
+
+      if (response.objects.length > 0) {
+        const objectList = response.objects.map(o => 
+          `${o.label} (${(o.confidence * 100).toFixed(1)}%): [${o.x}, ${o.y}, ${o.width}, ${o.height}]`
+        ).join('\n');
+        alert(`Detected objects:\n${objectList}`);
+      } else {
+        alert("No objects detected");
+      }
+
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Object detection failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Remove background from image
+   */
+  const handleRemoveBackground = async () => {
+    if (!uploadedImage) {
+      setError("Please upload an image first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const dataUrl = await fileToDataUrl(uploadedImage);
+
+      const response = await removeBackground({
+        image_path: dataUrl,
+      });
+
+      setGeneratedImages(prev => [...prev, response.image_path]);
+      setComparisonImage(response.image_path);
+      setShowComparison(true);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Background removal failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Add job to queue
+   */
+  const handleAddToQueue = async () => {
+    if (!prompt) {
+      setError("Please enter a prompt first");
+      return;
+    }
+
+    try {
+      const response = await addToQueue({
+        job_type: 'image',
+        prompt: prompt,
+        priority: 5,
+      });
+
+      setQueueJobId(response.job_id);
+      setQueueStatus(response);
+      
+      // Start polling for status
+      pollQueueStatus(response.job_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add to queue");
+    }
+  };
+
+  /**
+   * Poll queue status
+   */
+  const pollQueueStatus = async (jobId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const status = await getQueueStatus(jobId);
+        setQueueStatus(status);
+
+        if (status.status === 'completed') {
+          clearInterval(interval);
+        } else if (status.status === 'failed') {
+          setError('Job failed');
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error("Failed to poll queue status:", err);
+        clearInterval(interval);
+      }
+    }, 2000);
+
+    progressIntervalRef.current = interval as unknown as number;
+  };
+
+  /**
+   * Load cache stats
+   */
+  const loadCacheStats = async () => {
+    try {
+      const stats = await getCacheStats();
+      setCacheStats(stats);
+    } catch (err) {
+      console.error("Failed to load cache stats:", err);
+    }
+  };
+
+  /**
+   * Clear cache
+   */
+  const handleClearCache = async () => {
+    try {
+      await clearCache();
+      setGenerationState("finished");
+      alert("Cache cleared successfully");
+      loadCacheStats();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear cache");
+    }
+  };
+
+  /**
+   * Delete image from storage
+   */
+  const handleDeleteImage = async (fileId: string, filename: string) => {
+    try {
+      await deleteStorageFile(fileId);
+      setImageHistory(prev => prev.filter(item => item.file_id !== fileId));
+      alert(`Deleted ${filename}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete image");
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-900">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-700">
+        <h2 className="text-xl font-semibold text-white mb-2">
+          {t("PHOTO_TAB$TITLE", "Photo Generation")}
+        </h2>
+
+        {/* Mode Selection */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {MODE_OPTIONS.map((mode) => (
+            <button
+              key={mode.value}
+              onClick={() => setGenerationMode(mode.value)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                generationMode === mode.value
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600",
+              )}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        {/* System Status */}
+        <div className="flex gap-4 text-xs text-gray-400">
+          <span>Health: {healthStatus}</span>
+          {cacheStats && (
+            <>
+              <span>Cached Models: {cacheStats.pipeline_cache_size + cacheStats.controlnet_cache_size}</span>
+              <span>Redis: {cacheStats.redis_available ? '✓' : '✗'}</span>
+            </>
+          )}
+        </div>
+
+        {/* Cache Stats Button */}
+        <button
+          onClick={loadCacheStats}
+          className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+        >
+          Refresh Cache Stats
+        </button>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 p-4 overflow-auto">
+        {/* Input Section */}
+        <div className="mb-6 space-y-4">
+          {generationMode === 'txt2img' && (
+            <>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Enter your prompt..."
+                className="w-full h-24 p-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+
+              {/* Prompt History */}
+              {promptHistory.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-sm text-gray-400 mb-1">Recent prompts:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {promptHistory.slice(0, 5).map((p, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setPrompt(p)}
+                        className="px-2 py-1 bg-gray-700 rounded text-xs text-gray-300 hover:bg-gray-600"
+                      >
+                        {p.substring(0, 50)}...
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Model Selection */}
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+              >
+                <option value="black-forest-labs/FLUX.1-schnell">FLUX.1-schnell</option>
+                <option value="stabilityai/stable-diffusion-xl-base-1.0">SDXL 1.0</option>
+                <option value="runwayml/stable-diffusion-v1-5">Stable Diffusion v1.5</option>
+              </select>
+
+              {/* Queue Status */}
+              {queueJobId && queueStatus && (
+                <div className="p-3 bg-blue-900/20 border border-blue-700 rounded-lg">
+                  <p className="text-sm text-blue-300 font-medium mb-1">Queue Status</p>
+                  <p className="text-xs text-gray-400">Job ID: {queueJobId}</p>
+                  <p className="text-xs text-gray-400">Status: {queueStatus.status}</p>
+                  <p className="text-xs text-gray-400">Position: {queueStatus.position_in_queue}</p>
+                </div>
+              )}
+
+              {/* Generate Button */}
+              <button
+                onClick={() => {
+                  savePromptToHistory(prompt);
+                  handleAddToQueue();
+                }}
+                disabled={generationState === "generating" || !prompt.trim()}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+              >
+                {generationState === "generating" ? "Generating..." : "Generate Image"}
+              </button>
+
+              {/* Cache Clear Button */}
+              <button
+                onClick={handleClearCache}
+                className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                Clear Cache
+              </button>
+            </>
+          )}
+
+          {/* Upscale Mode */}
+          {generationMode === 'upscale' && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                Upload Image to Upscale
+              </button>
+              {uploadedImage && (
+                <div className="flex gap-2">
+                  <select
+                    value="2.0"
+                    className="p-2 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                  >
+                    <option value="1.5">1.5x</option>
+                    <option value="2.0">2x</option>
+                    <option value="4.0">4x</option>
+                  </select>
+                  <button
+                    onClick={handleUpscaleImage}
+                    disabled={generationState === "generating"}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                  >
+                    Upscale
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Style Transfer Mode */}
+          {generationMode === 'style-transfer' && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <input
+                type="file"
+                ref={controlImageInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedControlImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+                >
+                  Upload Content Image
+                </button>
+                <button
+                  onClick={() => controlImageInputRef.current?.click()}
+                  className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+                >
+                  Upload Style Image
+                </button>
+              </div>
+              {uploadedImage && uploadedControlImage && (
+                <button
+                  onClick={handleStyleTransfer}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Apply Style Transfer
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Caption Mode */}
+          {generationMode === 'caption' && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Upload Image to Caption
+              </button>
+              {uploadedImage && (
+                <button
+                  onClick={handleCaptionImage}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Generate Caption
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Detect Objects Mode */}
+          {generationMode === 'detect-objects' && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Upload Image for Detection
+              </button>
+              {uploadedImage && (
+                <button
+                  onClick={handleDetectObjects}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Detect Objects
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Remove Background Mode */}
+          {generationMode === 'remove-bg' && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+                className="hidden"
+                accept="image/*"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Upload Image to Remove Background
+              </button>
+              {uploadedImage && (
+                <button
+                  onClick={handleRemoveBackground}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Remove Background
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Error Display */}
+          {error && (
+            <div className="p-3 bg-red-900/20 border border-red-700 rounded-lg">
+              <p className="text-sm text-red-400">{error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="mt-2 text-xs text-red-300 hover:text-red-200"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Image History */}
+          {imageHistory.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-white mb-3">Generated Images</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {imageHistory.slice(0, 8).map((item) => (
+                  <div key={item.file_id} className="relative group">
+                    <img
+                      src={`file://${item.path}`}
+                      alt={item.filename}
+                      className="w-full h-32 object-cover rounded-lg"
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                      <a
+                        href={`file://${item.path}`}
+                        download={item.filename}
+                        className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                      >
+                        Download
+                      </a>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteImage(item.file_id, item.filename)}
+                      className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Comparison View */}
+          {showComparison && comparisonImage && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-white mb-3">Before/After Comparison</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-400 mb-2">Original</p>
+                  {uploadedImage && (
+                    <img
+                      src={URL.createObjectURL(uploadedImage)}
+                      alt="Original"
+                      className="w-full h-auto rounded-lg"
+                    />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400 mb-2">Processed</p>
+                  <img
+                    src={comparisonImage}
+                    alt="Processed"
+                    className="w-full h-auto rounded-lg"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => setShowComparison(false)}
+                className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Close Comparison
+              </button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!generatedImages.length && !isGenerating && !error && (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+              <ImageIcon width={64} height={64} className="mb-4 opacity-50" />
+              <p>
+                {t(
+                  "PHOTO_TAB$EMPTY_MESSAGE",
+                  "Select a mode, enter a prompt and click Generate to create an image",
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 export default PhotoTab;

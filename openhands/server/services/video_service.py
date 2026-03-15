@@ -13,9 +13,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import tempfile
+import zipfile
 
 from openhands.server.dependencies import get_dependencies
 
@@ -874,3 +876,515 @@ async def get_generated_video(video_id: str):
         return FileResponse(video_path, media_type='video/mp4')
 
     raise HTTPException(status_code=404, detail='Video not found')
+
+
+# ============================================================================
+# NEW ENDPOINTS - Faza 1 Backend Enhancement (Video)
+# ============================================================================
+
+class AudioAdditionRequest(BaseModel):
+    """Request model for adding audio to video."""
+    video_path: str = Field(..., min_length=1)
+    audio_path: str = Field(..., min_length=1)
+    volume: float = Field(default=1.0, ge=0.0, le=2.0)
+
+
+class AudioAdditionResponse(BaseModel):
+    """Response model for audio addition."""
+    video_path: str
+    video_id: str
+    duration: float
+    fps: int
+    resolution: str
+
+
+@router.post('/add-audio-to-video', response_model=AudioAdditionResponse)
+async def add_audio_to_video(request: AudioAdditionRequest):
+    """Add audio track to a video.
+
+    Args:
+        request: AudioAdditionRequest containing video and audio paths
+
+    Returns:
+        AudioAdditionResponse with processed video path
+    """
+    if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
+        )
+
+    if not CV2_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail='Video editing is not available. Please install opencv-python',
+        )
+
+    # Validate files exist
+    for file_path in [request.video_path, request.audio_path]:
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=400, detail=f'File not found: {file_path}'
+            )
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    try:
+        import subprocess
+
+        video_id = str(uuid.uuid4())[:8]
+        output_filename = f'video_audio_{video_id}.mp4'
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+        # Use ffmpeg to add audio (simple approach using subprocess)
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', request.video_path,
+            '-i', request.audio_path,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-filter:a', f'volume={request.volume}',
+            '-shortest',
+            output_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500, detail=f'FFmpeg error: {result.stderr}'
+            )
+
+        # Get video metadata
+        cap = cv2.VideoCapture(output_path)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        duration = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / fps if fps > 0 else 10.0
+        cap.release()
+
+        return AudioAdditionResponse(
+            video_path=output_path,
+            video_id=video_id,
+            duration=duration,
+            fps=fps,
+            resolution=f'{width}x{height}',
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Audio addition failed: {str(e)}'
+        )
+
+
+class VideoMergeRequest(BaseModel):
+    """Request model for merging videos."""
+    video_paths: list[str] = Field(..., min_length=2)
+    transition_type: str = Field(default='fade', pattern='^(fade|dissolve|cut)$')
+
+
+class VideoMergeResponse(BaseModel):
+    """Response model for video merging."""
+    video_path: str
+    video_id: str
+    duration: float
+    fps: int
+    resolution: str
+
+
+@router.post('/merge-videos', response_model=VideoMergeResponse)
+async def merge_videos(request: VideoMergeRequest):
+    """Merge multiple videos into one.
+
+    Args:
+        request: VideoMergeRequest containing video paths and transition type
+
+    Returns:
+        VideoMergeResponse with merged video path
+    """
+    if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
+        )
+
+    if not CV2_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail='Video editing is not available. Please install opencv-python',
+        )
+
+    # Validate all videos exist
+    for video_path in request.video_paths:
+        if not os.path.exists(video_path):
+            raise HTTPException(
+                status_code=400, detail=f'Video not found: {video_path}'
+            )
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    try:
+        import subprocess
+
+        video_id = str(uuid.uuid4())[:8]
+        output_filename = f'video_merged_{video_id}.mp4'
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+        # Create temp file list for ffmpeg
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            for video_path in request.video_paths:
+                f.write(f"file '{video_path}'\n")
+            temp_list = f.name
+
+        try:
+            # Use ffmpeg concat filter
+            cmd = [
+                'ffmpeg', '-y',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', temp_list,
+                '-c:v', 'libx264',
+                '-c:a', 'aac',
+                '-pix_fmt', 'yuv420p',
+                output_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise HTTPException(
+                    status_code=500, detail=f'FFmpeg error: {result.stderr}'
+                )
+
+        finally:
+            os.unlink(temp_list)
+
+        # Get video metadata
+        cap = cv2.VideoCapture(output_path)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        duration = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / fps if fps > 0 else 10.0
+        cap.release()
+
+        return VideoMergeResponse(
+            video_path=output_path,
+            video_id=video_id,
+            duration=duration,
+            fps=fps,
+            resolution=f'{width}x{height}',
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Video merging failed: {str(e)}'
+        )
+
+
+class FrameExtractionRequest(BaseModel):
+    """Request model for extracting frames from video."""
+    video_path: str = Field(..., min_length=1)
+    interval: int = Field(default=1, ge=1, le=60)  # Extract every Nth frame
+    start_frame: int = Field(default=0, ge=0)
+
+
+class FrameExtractionResponse(BaseModel):
+    """Response model for frame extraction."""
+    video_id: str
+    frames_count: int
+    output_directory: str
+
+
+@router.post('/extract-frames', response_model=FrameExtractionResponse)
+async def extract_frames(request: FrameExtractionRequest):
+    """Extract individual frames from a video.
+
+    Args:
+        request: FrameExtractionRequest containing video path and parameters
+
+    Returns:
+        FrameExtractionResponse with extracted frame info
+    """
+    if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
+        )
+
+    if not CV2_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail='Video editing is not available. Please install opencv-python',
+        )
+
+    if not os.path.exists(request.video_path):
+        raise HTTPException(
+            status_code=400, detail=f'Video not found: {request.video_path}'
+        )
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    try:
+        video_id = str(uuid.uuid4())[:8]
+        frames_dir = os.path.join(OUTPUT_DIR, f'frames_{video_id}')
+        os.makedirs(frames_dir, exist_ok=True)
+
+        # Open video
+        cap = cv2.VideoCapture(request.video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+        frame_count = 0
+        current_frame = request.start_frame
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if current_frame >= total_frames:
+                break
+
+            # Extract every Nth frame based on interval
+            if current_frame % request.interval == 0:
+                frame_filename = f'frame_{current_frame:06d}.png'
+                frame_path = os.path.join(frames_dir, frame_filename)
+                cv2.imwrite(frame_path, frame)
+                frame_count += 1
+
+            current_frame += 1
+
+        cap.release()
+
+        return FrameExtractionResponse(
+            video_id=video_id,
+            frames_count=frame_count,
+            output_directory=frames_dir,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Frame extraction failed: {str(e)}'
+        )
+
+
+class ThumbnailGenerationRequest(BaseModel):
+    """Request model for generating thumbnails from video."""
+    video_path: str = Field(..., min_length=1)
+    num_thumbnails: int = Field(default=3, ge=1, le=20)
+    start_frame: int = Field(default=0, ge=0)
+
+
+class ThumbnailGenerationResponse(BaseModel):
+    """Response model for thumbnail generation."""
+    video_id: str
+    thumbnails_count: int
+    output_directory: str
+
+
+@router.post('/generate-thumbnail', response_model=ThumbnailGenerationResponse)
+async def generate_thumbnail(request: ThumbnailGenerationRequest):
+    """Generate multiple thumbnails from a video.
+
+    Args:
+        request: ThumbnailGenerationRequest containing video path and parameters
+
+    Returns:
+        ThumbnailGenerationResponse with thumbnail info
+    """
+    if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
+        )
+
+    if not CV2_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail='Video editing is not available. Please install opencv-python',
+        )
+
+    if not os.path.exists(request.video_path):
+        raise HTTPException(
+            status_code=400, detail=f'Video not found: {request.video_path}'
+        )
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    try:
+        video_id = str(uuid.uuid4())[:8]
+        thumbnails_dir = os.path.join(OUTPUT_DIR, f'thumbnails_{video_id}')
+        os.makedirs(thumbnails_dir, exist_ok=True)
+
+        # Open video
+        cap = cv2.VideoCapture(request.video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # Calculate frame positions for thumbnails
+        if request.num_thumbnails > 1:
+            interval = max(1, (total_frames - request.start_frame) // (request.num_thumbnails - 1))
+        else:
+            interval = total_frames // 2
+
+        thumbnail_count = 0
+        current_frame = request.start_frame
+
+        for i in range(request.num_thumbnails):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, min(current_frame, total_frames - 1))
+            ret, frame = cap.read()
+
+            if ret:
+                thumb_filename = f'thumbnail_{i:03d}.jpg'
+                thumb_path = os.path.join(thumbnails_dir, thumb_filename)
+                cv2.imwrite(thumb_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                thumbnail_count += 1
+
+            current_frame += interval
+
+        cap.release()
+
+        return ThumbnailGenerationResponse(
+            video_id=video_id,
+            thumbnails_count=thumbnail_count,
+            output_directory=thumbnails_dir,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Thumbnail generation failed: {str(e)}'
+        )
+
+
+class VideoMetadataResponse(BaseModel):
+    """Response model for video metadata."""
+    duration: float
+    fps: int
+    resolution: str
+    width: int
+    height: int
+    codec: Optional[str] = None
+    bitrate: Optional[int] = None
+
+
+@router.post('/extract-video-metadata', response_model=VideoMetadataResponse)
+async def extract_video_metadata(request: VideoMetadataRequest):
+    """Extract metadata from a video file.
+
+    Args:
+        request: VideoMetadataRequest containing video path
+
+    Returns:
+        VideoMetadataResponse with video metadata
+    """
+    if not _check_rate_limit(None, VIDEO_RATE_LIMIT, VIDEO_RATE_WINDOW):
+        raise HTTPException(
+            status_code=429, detail='Rate limit exceeded. Please try again later.'
+        )
+
+    if not CV2_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail='Video editing is not available. Please install opencv-python',
+        )
+
+    if not os.path.exists(request.video_path):
+        raise HTTPException(
+            status_code=400, detail=f'Video not found: {request.video_path}'
+        )
+
+    try:
+        cap = cv2.VideoCapture(request.video_path)
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps if fps > 0 else 10.0
+
+        cap.release()
+
+        return VideoMetadataResponse(
+            duration=duration,
+            fps=fps,
+            resolution=f'{width}x{height}',
+            width=width,
+            height=height,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Metadata extraction failed: {str(e)}'
+        )
+
+
+class VideoMetadataRequest(BaseModel):
+    """Request model for video metadata extraction."""
+    video_path: str = Field(..., min_length=1)
+
+
+# ============================================================================
+# SHARED INFRASTRUCTURE - Faza 1 Backend Enhancement (Video)
+# ============================================================================
+
+@router.get('/cache/stats', response_model=CacheStatsResponse)
+async def get_video_cache_stats():
+    """Get video service cache statistics.
+
+    Returns:
+        CacheStatsResponse with video-specific cache sizes and status
+    """
+    return CacheStatsResponse(
+        pipeline_cache_size=len(_video_pipeline_cache),
+        controlnet_cache_size=0,  # Video specific
+        video_pipeline_cache_size=len(_video_pipeline_cache),
+        rate_limit_storage_size=len(_rate_limit_storage),
+        redis_available=REDIS_AVAILABLE,
+    )
+
+
+@router.post('/cache/clear')
+async def clear_video_cache():
+    """Clear video service caches.
+
+    Returns:
+        Success message
+    """
+    try:
+        # Clear video pipeline cache
+        _video_pipeline_cache.clear()
+
+        return {'message': 'Video cache cleared successfully'}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f'Video cache clear failed: {str(e)}'
+        )
+
+
+@router.get('/health', response_model=HealthResponse)
+async def video_health_check():
+    """Get video service health and status.
+
+    Returns:
+        HealthResponse with system status
+    """
+    return HealthResponse(
+        status='healthy',
+        redis_available=REDIS_AVAILABLE,
+        diffusers_available=DIFFUSERS_VIDEO_AVAILABLE,
+        controlnet_available=False,  # Video specific
+        cv2_available=CV2_AVAILABLE,
+        gpu_enabled=GPU_ENABLED,
+        output_dir=OUTPUT_DIR,
+        rate_limit=VIDEO_RATE_LIMIT,
+        image_rate_limit=10,  # Default value
+        video_rate_limit=VIDEO_RATE_LIMIT,
+    )
+

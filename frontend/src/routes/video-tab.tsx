@@ -16,9 +16,18 @@ import {
   VideoEditingRequest,
   VideoEnhancementRequest,
   ImageToVideoRequest,
+  // New API functions for Faza 2
+  addAudioToVideo,
+  mergeVideos,
+  extractFrames,
+  generateThumbnails,
+  extractVideoMetadata,
+  listStorage,
+  deleteStorageFile,
+  StorageItem,
 } from "#/api/generation-service";
 
-type VideoGenerationMode = "txt2v" | "img2v" | "v2v" | "edit" | "enhance";
+type VideoGenerationMode = "txt2v" | "img2v" | "v2v" | "edit" | "enhance" | "add-audio" | "merge" | "extract-frames" | "generate-thumbnails" | "metadata";
 type GenerationState =
   | "idle"
   | "pending"
@@ -32,6 +41,11 @@ const VIDEO_MODE_OPTIONS: { value: VideoGenerationMode; label: string; icon: str
   { value: "v2v", label: "Video to Video", icon: "V2V" },
   { value: "edit", label: "Edit Video", icon: "EDIT" },
   { value: "enhance", label: "Enhance Video", icon: "ENH" },
+  { value: "add-audio", label: "Add Audio", icon: "AUDIO" },
+  { value: "merge", label: "Merge Videos", icon: "MERGE" },
+  { value: "extract-frames", label: "Extract Frames", icon: "FRAMES" },
+  { value: "generate-thumbnails", label: "Thumbnails", icon: "THUMB" },
+  { value: "metadata", label: "Metadata", icon: "META" },
 ];
 
 const RESOLUTIONS = [
@@ -59,6 +73,13 @@ const VIDEO_OPERATIONS = [
 const DURATION_MIN = 2;
 const DURATION_MAX = 30;
 const DURATION_DEFAULT = 5;
+
+// New state variables for Faza 2 features
+const [videoHistory, setVideoHistory] = useState<StorageItem[]>([]);
+const [audioFile, setAudioFile] = useState<File | null>(null);
+const [metadata, setMetadata] = useState<any>(null);
+const [thumbnailsDir, setThumbnailsDir] = useState<string>("");
+const [framesCount, setFramesCount] = useState<number>(0);
 
 function VideoTab() {
   const { t } = useTranslation();
@@ -1073,7 +1094,228 @@ function VideoTab() {
           </div>
         )}
 
-        {/* Empty State */}
+        {/* Add Audio Mode */}
+        {videoMode === 'add-audio' && (
+          <div className="space-y-4">
+            <input
+              type="file"
+              ref={videoInputRef}
+              onChange={(e) => e.target.files?.[0] && setSelectedVideo(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <input
+              type="file"
+              onChange={(e) => e.target.files?.[0] && setAudioFile(e.target.files[0])}
+              className="hidden"
+              accept="audio/*"
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Upload Video
+              </button>
+              <button
+                onClick={() => document.querySelector('input[type="file"]')?.click()}
+                className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Upload Audio
+              </button>
+            </div>
+            {selectedVideo && audioFile && (
+              <button
+                onClick={handleAddAudio}
+                disabled={generationState === "generating"}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                Add Audio to Video
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Merge Videos Mode */}
+        {videoMode === 'merge' && (
+          <div className="space-y-4">
+            <input
+              type="file"
+              ref={videoInputRef}
+              onChange={(e) => e.target.files?.[0] && setSelectedVideo(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <input
+              type="file"
+              ref={imageInputRef}
+              onChange={(e) => e.target.files?.[0] && setUploadedImage(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Video 1
+              </button>
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+              >
+                Video 2
+              </button>
+            </div>
+            {selectedVideo && uploadedImage && (
+              <button
+                onClick={handleMergeVideos}
+                disabled={generationState === "generating"}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                Merge Videos
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Extract Frames Mode */}
+        {videoMode === 'extract-frames' && (
+          <div className="space-y-4">
+            <input
+              type="file"
+              ref={videoInputRef}
+              onChange={(e) => e.target.files?.[0] && setSelectedVideo(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+            >
+              Upload Video to Extract Frames
+            </button>
+            {selectedVideo && (
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Extract every Nth frame:</label>
+                <select className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                  <option value="1">Every frame</option>
+                  <option value="5">Every 5th frame</option>
+                  <option value="10" selected>Every 10th frame</option>
+                  <option value="30">Every 30th frame</option>
+                </select>
+                <button
+                  onClick={handleExtractFrames}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Extract Frames
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Generate Thumbnails Mode */}
+        {videoMode === 'generate-thumbnails' && (
+          <div className="space-y-4">
+            <input
+              type="file"
+              ref={videoInputRef}
+              onChange={(e) => e.target.files?.[0] && setSelectedVideo(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+            >
+              Upload Video for Thumbnails
+            </button>
+            {selectedVideo && (
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Number of thumbnails:</label>
+                <select className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
+                  <option value="3">3 thumbnails</option>
+                  <option value="5" selected>5 thumbnails</option>
+                  <option value="10">10 thumbnails</option>
+                </select>
+                <button
+                  onClick={handleGenerateThumbnails}
+                  disabled={generationState === "generating"}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  Generate Thumbnails
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Metadata Mode */}
+        {videoMode === 'metadata' && (
+          <div className="space-y-4">
+            <input
+              type="file"
+              ref={videoInputRef}
+              onChange={(e) => e.target.files?.[0] && setSelectedVideo(e.target.files[0])}
+              className="hidden"
+              accept="video/*"
+            />
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg"
+            >
+              Upload Video for Metadata
+            </button>
+            {selectedVideo && (
+              <button
+                onClick={handleLoadMetadata}
+                disabled={generationState === "generating"}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                Extract Metadata
+              </button>
+            )}
+            {metadata && (
+              <div className="p-4 bg-gray-800 rounded-lg">
+                <h4 className="text-sm font-semibold text-white mb-2">Video Metadata</h4>
+                <div className="space-y-1 text-xs text-gray-400">
+                  <p>Duration: {metadata.duration.toFixed(2)}s</p>
+                  <p>FPS: {metadata.fps}</p>
+                  <p>Resolution: {metadata.resolution}</p>
+                  <p>Width: {metadata.width}px</p>
+                  <p>Height: {metadata.height}px</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Video History */}
+        {videoHistory.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-lg font-semibold text-white mb-3">Generated Videos</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {videoHistory.slice(0, 8).map((item) => (
+                <div key={item.file_id} className="relative group">
+                  <video
+                    src={`file://${item.path}`}
+                    controls
+                    className="w-full h-32 object-cover rounded-lg"
+                  />
+                  <button
+                    onClick={() => handleDeleteVideo(item.file_id, item.filename)}
+                    className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!generatedVideo && !isGenerating && !error && (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400">
             <PlayIcon width={64} height={64} className="mb-4 opacity-50" />
@@ -1094,6 +1336,158 @@ function VideoTab() {
       </div>
     </div>
   );
-}
 
-export default VideoTab;
+  // ============================================================================
+  // NEW FUNCTIONS - Faza 2 Frontend Enhancement (Video)
+  // ============================================================================
+
+  /**
+   * Add audio to video
+   */
+  const handleAddAudio = async () => {
+    if (!selectedVideo || !audioFile) {
+      setError("Please upload both video and audio files");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const videoDataUrl = await fileToDataUrl(selectedVideo);
+      const audioDataUrl = await fileToDataUrl(audioFile);
+
+      const response = await addAudioToVideo({
+        video_path: videoDataUrl,
+        audio_path: audioDataUrl,
+        volume: 1.0,
+      });
+
+      setGeneratedVideo(response.video_path);
+      setGeneratedVideoId(response.video_id);
+      setGenerationState("finished");
+      
+      // Reload history
+      const items = await listStorage();
+      setVideoHistory(items.filter(item => item.filename.endsWith('.mp4')));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Audio addition failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Merge videos
+   */
+  const handleMergeVideos = async () => {
+    if (!selectedVideo || !uploadedImage) {
+      setError("Please upload at least two videos");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const video1DataUrl = await fileToDataUrl(selectedVideo);
+      const video2DataUrl = await fileToDataUrl(uploadedImage);
+
+      const response = await mergeVideos({
+        video_paths: [video1DataUrl, video2DataUrl],
+        transition_type: 'fade',
+      });
+
+      setGeneratedVideo(response.video_path);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Video merging failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Extract frames from video
+   */
+  const handleExtractFrames = async () => {
+    if (!selectedVideo) {
+      setError("Please upload a video first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const dataUrl = await fileToDataUrl(selectedVideo);
+
+      const response = await extractFrames({
+        video_path: dataUrl,
+        interval: 10,
+        start_frame: 0,
+      });
+
+      setFramesCount(response.frames_count);
+      alert(`Extracted ${response.frames_count} frames from video`);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Frame extraction failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Generate thumbnails from video
+   */
+  const handleGenerateThumbnails = async () => {
+    if (!selectedVideo) {
+      setError("Please upload a video first");
+      return;
+    }
+
+    setGenerationState("generating");
+    try {
+      const dataUrl = await fileToDataUrl(selectedVideo);
+
+      const response = await generateThumbnails({
+        video_path: dataUrl,
+        num_thumbnails: 5,
+        start_frame: 0,
+      });
+
+      setThumbnailsDir(response.output_directory);
+      alert(`Generated ${response.thumbnails_count} thumbnails`);
+      setGenerationState("finished");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Thumbnail generation failed");
+      setGenerationState("failed");
+    }
+  };
+
+  /**
+   * Load video metadata
+   */
+  const handleLoadMetadata = async () => {
+    if (!selectedVideo) {
+      setError("Please upload a video first");
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(selectedVideo);
+      const meta = await extractVideoMetadata({ video_path: dataUrl });
+      setMetadata(meta);
+      
+      alert(`Duration: ${meta.duration.toFixed(2)}s\nFPS: ${meta.fps}\nResolution: ${meta.resolution}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Metadata extraction failed");
+    }
+  };
+
+  /**
+   * Delete video from storage
+   */
+  const handleDeleteVideo = async (fileId: string, filename: string) => {
+    try {
+      await deleteStorageFile(fileId);
+      setVideoHistory(prev => prev.filter(item => item.file_id !== fileId));
+      alert(`Deleted ${filename}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete video");
+    }
+  };
+
+  return (export default VideoTab;
