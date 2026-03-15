@@ -7,9 +7,11 @@ diffusion models (FLUX, SDXL) via the diffusers library.
 import gc
 import os
 import uuid
+import base64
+import io
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -141,6 +143,47 @@ def _clear_gpu_memory():
     if DIFFUSERS_AVAILABLE and torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
+
+
+def _load_image_from_path_or_data_url(image_source: Union[str, bytes]) -> 'Image.Image':
+    """Load an image from a file path or base64 data URL.
+
+    Args:
+        image_source: Either a file path (str) or a base64 data URL (str starting with 'data:')
+
+    Returns:
+        PIL Image object
+
+    Raises:
+        HTTPException: If the image cannot be loaded
+    """
+    from PIL import Image
+
+    try:
+        # Check if it's a data URL
+        if isinstance(image_source, str) and image_source.startswith('data:'):
+            # Parse the data URL: data:image/png;base64,<data>
+            header, b64data = image_source.split(',', 1)
+            # Decode base64
+            image_data = base64.b64decode(b64data)
+            # Load into PIL Image
+            return Image.open(io.BytesIO(image_data)).convert('RGB')
+        elif isinstance(image_source, bytes):
+            # Raw base64 bytes
+            return Image.open(io.BytesIO(image_source)).convert('RGB')
+        else:
+            # It's a file path
+            if not os.path.exists(image_source):
+                raise HTTPException(
+                    status_code=400, detail=f'Image not found: {image_source}'
+                )
+            return Image.open(image_source).convert('RGB')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f'Failed to load image: {str(e)}'
+        )
 
 
 def _load_pipeline(model_name: str, device: str = 'cuda'):
@@ -416,12 +459,6 @@ async def transform_image(request: ImageToImageRequest):
             detail='Image transformation is not available. Please install transformers: pip install transformers',
         )
 
-    # Validate image exists
-    if not os.path.exists(request.image_path):
-        raise HTTPException(
-            status_code=400, detail=f'Image not found: {request.image_path}'
-        )
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     width, height = _get_resolution_tuple(request.resolution)
@@ -445,21 +482,28 @@ async def transform_image(request: ImageToImageRequest):
 
     try:
         from PIL import Image
-        
+
         # Load the img2img pipeline
         pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
             model_name,
             torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         )
-        
+
         if device == 'cuda' and torch.cuda.is_available():
             pipeline = pipeline.to('cuda')
         else:
             pipeline = pipeline.to('cpu')
 
-        # Load original image
-        original_image = Image.open(request.image_path).convert('RGB')
-        original_image = original_image.resize((width, height))
+        # Load original image (supports both file paths and data URLs)
+        try:
+            original_image = _load_image_from_path_or_data_url(request.image_path)
+            original_image = original_image.resize((width, height))
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f'Failed to load image: {str(e)}'
+            )
 
         # Build effective negative prompt
         effective_negative = request.negative_prompt
@@ -524,16 +568,6 @@ async def inpaint_image(request: InpaintingRequest):
             detail='Inpainting is not available. Please install transformers: pip install transformers',
         )
 
-    # Validate files exist
-    if not os.path.exists(request.image_path):
-        raise HTTPException(
-            status_code=400, detail=f'Image not found: {request.image_path}'
-        )
-    if not os.path.exists(request.mask_path):
-        raise HTTPException(
-            status_code=400, detail=f'Mask not found: {request.mask_path}'
-        )
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     width, height = _get_resolution_tuple(request.resolution)
@@ -549,23 +583,30 @@ async def inpaint_image(request: InpaintingRequest):
 
     try:
         from PIL import Image
-        
+
         # Load the inpaint pipeline
         pipeline = StableDiffusionInpaintPipeline.from_pretrained(
             'runwayml/stable-diffusion-inpainting',
             torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         )
-        
+
         if device == 'cuda' and torch.cuda.is_available():
             pipeline = pipeline.to('cuda')
         else:
             pipeline = pipeline.to('cpu')
 
-        # Load image and mask
-        image = Image.open(request.image_path).convert('RGB')
-        image = image.resize((512, 512))  # Inpainting model expects 512x512
-        mask = Image.open(request.mask_path).convert('RGB')
-        mask = mask.resize((512, 512))
+        # Load image and mask (support both file paths and data URLs)
+        try:
+            image = _load_image_from_path_or_data_url(request.image_path)
+            image = image.resize((512, 512))  # Inpainting model expects 512x512
+            mask = _load_image_from_path_or_data_url(request.mask_path)
+            mask = mask.resize((512, 512))
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f'Failed to load image or mask: {str(e)}'
+            )
 
         # Inpaint
         result = pipeline(
@@ -847,9 +888,16 @@ async def generate_with_controlnet(request: ControlNetRequest):
     try:
         from PIL import Image
 
-        # Load control image
-        control_image = Image.open(request.control_image_path).convert('RGB')
-        control_image = control_image.resize((width, height))
+        # Load control image (supports both file paths and data URLs)
+        try:
+            control_image = _load_image_from_path_or_data_url(request.control_image_path)
+            control_image = control_image.resize((width, height))
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f'Failed to load control image: {str(e)}'
+            )
 
         # Load pipeline
         pipeline = _load_controlnet_pipeline(request.controlnet_type, device)

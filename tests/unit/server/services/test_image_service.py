@@ -234,3 +234,85 @@ class TestInpaintingRequest:
                 mask_path="",
                 prompt="test"
             )
+
+
+class TestImageLoadingFromDataURL:
+    """Tests for loading images from file paths and data URLs."""
+
+    @patch('openhands.server.services.image_service.os.path.exists')
+    def test_load_image_from_file_path(self, mock_exists):
+        """Test loading image from a file path."""
+        from openhands.server.services.image_service import _load_image_from_path_or_data_url
+        from PIL import Image
+        import io
+
+        mock_exists.return_value = True
+
+        # Create a mock image
+        test_image = Image.new('RGB', (100, 100), color='red')
+
+        with patch('builtins.open', create=True) as mock_open:
+            mock_open.return_value.__enter__.return_value.read.return_value = b'fake_image_data'
+
+            with patch('PIL.Image.open') as mock_image_open:
+                mock_image_open.return_value.convert.return_value = test_image
+
+                result = _load_image_from_path_or_data_url('/path/to/image.png')
+
+                # Verify the path existence was checked
+                mock_exists.assert_called_once_with('/path/to/image.png')
+
+    def test_load_image_from_data_url(self):
+        """Test loading image from a base64 data URL."""
+        from openhands.server.services.image_service import _load_image_from_path_or_data_url
+        from PIL import Image
+        import base64
+
+        # Create a simple test image and encode it as base64 data URL
+        test_image = Image.new('RGB', (10, 10), color='blue')
+        buffer = io.BytesIO()
+        test_image.save(buffer, format='PNG')
+        image_bytes = buffer.getvalue()
+        b64_data = base64.b64encode(image_bytes).decode('utf-8')
+        data_url = f'data:image/png;base64,{b64_data}'
+
+        result = _load_image_from_path_or_data_url(data_url)
+
+        assert isinstance(result, Image.Image)
+        assert result.mode == 'RGB'
+
+    def test_load_image_from_invalid_data_url(self):
+        """Test that invalid data URL raises error."""
+        from openhands.server.services.image_service import _load_image_from_path_or_data_url
+
+        # Invalid base64 data
+        with pytest.raises(Exception):
+            _load_image_from_path_or_data_url('data:image/png;base64,invalid!@#$')
+
+    @patch('openhands.server.services.image_service.os.path.exists')
+    def test_load_image_from_nonexistent_file(self, mock_exists):
+        """Test that loading from non-existent file raises error."""
+        from openhands.server.services.image_service import _load_image_from_path_or_data_url
+
+        mock_exists.return_value = False
+
+        with pytest.raises(Exception):
+            _load_image_from_path_or_data_url('/nonexistent/image.png')
+
+    def test_load_image_from_bytes(self):
+        """Test loading image from raw bytes."""
+        from openhands.server.services.image_service import _load_image_from_path_or_data_url
+        from PIL import Image
+        import base64
+
+        # Create a simple test image as bytes
+        test_image = Image.new('RGB', (10, 10), color='green')
+        buffer = io.BytesIO()
+        test_image.save(buffer, format='PNG')
+        image_bytes = buffer.getvalue()
+
+        result = _load_image_from_path_or_data_url(image_bytes)
+
+        assert isinstance(result, Image.Image)
+        assert result.mode == 'RGB'
+
