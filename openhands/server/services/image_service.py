@@ -34,9 +34,7 @@ except ImportError:
     CONTROLNET_AVAILABLE = False
 
 
-router = APIRouter(
-    prefix='/api/v1', tags=['image-generation'], dependencies=get_dependencies()
-)
+router = APIRouter(tags=['image-generation'], dependencies=get_dependencies())
 
 # Simple in-memory rate limiter (fallback when Redis unavailable)
 _rate_limit_storage: dict = defaultdict(list)
