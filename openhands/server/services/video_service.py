@@ -36,9 +36,7 @@ except ImportError:
     DIFFUSERS_VIDEO_AVAILABLE = False
 
 
-router = APIRouter(
-    prefix='/api/v1', tags=['video-generation'], dependencies=get_dependencies()
-)
+router = APIRouter(tags=['video-generation'], dependencies=get_dependencies())
 
 # Simple in-memory rate limiter (fallback when Redis unavailable)
 _rate_limit_storage: dict = defaultdict(list)

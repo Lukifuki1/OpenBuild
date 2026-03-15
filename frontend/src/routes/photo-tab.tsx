@@ -166,7 +166,7 @@ function PhotoTab() {
               className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={isGenerating}
             >
-              {RESOLUTIONS.map((res) => (
+              {IMAGE_RESOLUTIONS.map((res) => (
                 <option key={res.value} value={res.value}>
                   {res.label}
                 </option>
@@ -189,7 +189,7 @@ function PhotoTab() {
               className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={isGenerating}
             >
-              {STYLES.map((s) => (
+              {STYLE_PRESETS.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>
