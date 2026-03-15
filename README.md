@@ -1,16 +1,18 @@
 <a name="readme-top"></a>
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/OpenHands/docs/main/openhands/static/img/logo.png" alt="Logo" width="200">
+  <img src="./logo.png" alt="OpenBuild Logo" width="200">
   <h1 align="center" style="border-bottom: none">OpenBuild</h1>
 </div>
 
 <div align="center">
-  <a href="https://github.com/All-Hands-AI/OpenBuild/blob/main/LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-20B2AA?style=for-the-badge" alt="MIT License"></a>
+  <a href="https://github.com/Lukifuki1/OpenBuild/blob/main/LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-20B2AA?style=for-the-badge" alt="MIT License"></a>
   <a href="#"><img src="https://img.shields.io/badge/Agent%20Readiness-L1-00cc00?logoColor=FFE165&style=for-the-badge" alt="Agent Readiness Level"></a>
   <br/>
   <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-45%25-00cc00?logoColor=FFE165&style=for-the-badge" alt="Documentation Status"></a>
   <a href="#"><img src="https://img.shields.io/badge/Testing-62%25-00cc00?logoColor=FFE165&style=for-the-badge" alt="Testing Score"></a>
+  <a href="https://github.com/Lukifuki1/OpenBuild/stargazers"><img src="https://img.shields.io/github/stars/Lukifuki1/OpenBuild?style=for-the-badge" alt="Stars"></a>
+  <a href="https://github.com/Lukifuki1/OpenBuild/fork"><img src="https://img.shields.io/github/forks/Lukifuki1/OpenBuild?style=for-the-badge" alt="Forks"></a>
 </div>
 
 <hr>
@@ -31,7 +33,16 @@
 
 ## About
 
-OpenBuild is a production-ready AI-driven development platform built on OpenHands technology. The project provides a comprehensive environment for autonomous software development with integrated agent tooling, extensible architecture, and enterprise-grade security features.
+OpenBuild is a production-ready AI-driven development platform designed to transform how software is built. As an advanced fork of OpenHands, OpenBuild provides enhanced capabilities for autonomous software development with integrated agent tooling, extensible architecture, and enterprise-grade security features.
+
+OpenBuild empowers developers to leverage AI for coding tasks, from simple bug fixes to complex feature development. The platform combines the power of large language models with a robust tool ecosystem to create a seamless development experience.
+
+### Why OpenBuild?
+
+- **Enhanced Autonomy**: Advanced AI agents capable of complex reasoning and task execution
+- **Enterprise-Ready**: Production-grade security, scalability, and reliability
+- **Extensible**: Modular architecture for custom integrations and tooling
+- **Modern Stack**: Built with Python 3.12+, TypeScript, FastAPI, and React
 
 ### Current Status
 
@@ -85,7 +96,7 @@ OpenBuild is a production-ready AI-driven development platform built on OpenHand
 
 ```bash
 # Clone the repository
-git clone https://github.com/All-Hands-AI/OpenBuild.git
+git clone https://github.com/Lukifuki1/OpenBuild.git
 cd OpenBuild
 
 # Install dependencies
@@ -324,8 +335,8 @@ The core openhands and agent-server Docker images are fully MIT-licensed.
 
 - **Documentation**: https://docs.openhands.dev
 - **Community Slack**: https://dub.sh/openhands
-- **Issue Tracker**: https://github.com/All-Hands-AI/OpenBuild/issues
-- **Product Roadmap**: https://github.com/orgs/All-Hands-AI/projects/1
+- **Issue Tracker**: https://github.com/Lukifuki1/OpenBuild/issues
+- **Product Roadmap**: https://github.com/Lukifuki1/OpenBuild/projects
 
 ---
 
